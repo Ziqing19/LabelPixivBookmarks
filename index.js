@@ -2,16 +2,17 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  自动为Pixiv收藏夹内未分类的图片打上标签
 // @description:en    A sciprt helps pixiv users to label thier untagged images in the bookmarks.
 // @author       LyuShiWang(original author) Ziqing19
 // @match        https://www.pixiv.net/bookmark.php?*
 // @match        https://www.pixiv.net/bookmark_add.php?*
+// @match        https://www.pixiv.net/*users/*/bookmarks/artworks*
 // @license      MIT
 // @grant        none
 // ==/UserScript==
- 
+
 (function() {
     const current_url = window.location.href;
     // Confirm to start label
@@ -40,7 +41,7 @@
             let tag_set = [];
             for (let i = image_tags.length - 1; i >= 0; i--) {
                 let string_tag = image_tags[i].innerText;
- 
+
                 let first = string_tag.indexOf("*");
                 let second = string_tag.indexOf("users");
                 if (second == -1) {
@@ -67,8 +68,8 @@
     // Select first available image
     else if (current_url.indexOf("untagged=1") > -1) {
         let images = document.getElementsByClassName('display_editable_works')[0].childNodes[0].childNodes;
-        if (images.length > 0){
-            for(let i = 0; i < images.length; i++){
+        if (images.length > 0) {
+            for (let i = 0; i < images.length; i++) {
                 let image = images[i];
                 // the image has been deleted
                 if (image.childNodes.length !== 7) {
@@ -82,5 +83,26 @@
         } else {
             alert("全部处理完毕！\nAll images have been labeled!");
         }
+    }
+    // new UI
+    else if (current_url.indexOf("/bookmarks/artworks/%E6%9C%AA%E5%88%86%E9%A1%9E") > -1) {
+        let urls;
+        let count = 0;
+        let id = setInterval(function getImages() {
+            urls = document.getElementsByClassName('cdtm3u-3 eqNCoB');
+            count++;
+            if (urls.length !== 0) {
+                clearInterval(id);
+                const url = urls[0];
+                window.location.href = url;
+            }
+            if (count === 5) {
+                alert("全部处理完毕！\nAll images have been labeled!");
+            }
+        }, 500);
+    }
+    // new UI repeat
+    else if (current_url.indexOf("/bookmarks/artworks") > -1) {
+        window.location.href += "/%E6%9C%AA%E5%88%86%E9%A1%9E";
     }
 })();
