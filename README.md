@@ -1,4 +1,6 @@
-# Automatically add existing labels for images in the bookmarks
+# Label Pixiv Bookmarks
+
+## Automatically add existing labels for images in the bookmarks
 
 ## Intro
 
@@ -45,6 +47,10 @@
 - The script cannot work and alert a prompt
   - Please take down the prompt and start an issue at Github. The problem can be specific
 
+- In bookmark page of old version UI, the title of images become extremely large
+  - In the old version UI the title of images use h1 tag to present, which is completely ignorant of accessibility and conflicts with the bootstrap css that used to style the page
+  - I have tried to restore the font size of some titles. But for those images load asynchronously (like recommended images), there is very little that I can do for now.
+
 - Whether Pixiv will ban my account for the script
   - The script is basically for self-use and I have limited the speed of sending requests. It works properly on thousands of images.
 
@@ -58,7 +64,7 @@ The idea of the script and part of the code comes from `https://greasyfork.org/e
 Please report bugs or new features expected at [Github](https://github.com/Ziqing19/LabelPixivBookmarks).
 
 
-# 自动为Pixiv收藏夹内图片打上已有的标签
+## 自动为Pixiv收藏夹内图片打上已有的标签
 
 ## 工作原理
 
@@ -98,6 +104,10 @@ Please report bugs or new features expected at [Github](https://github.com/Ziqin
 
 - 无法正常运行，弹窗提示错误
   - 请记录下弹窗提示内容，并在Github提交issue，通常具体问题需要具体分析
+
+- 旧版UI会导致部分字体变大
+  - 旧版UI在作品标题使用了h1标签（非常离谱），而本脚本使用bootstrap进行排版，导致样式冲突
+  - 目前只对已经加载的部分恢复了字体大小，对于异步加载的推荐栏无法生效
 
 - 使用该脚本是否会导致封号？
   - 该脚本为作者方便分类的自用脚本，并且限制了提交速度，在千数量级的工作量下暂时没有出现问题
