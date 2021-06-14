@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      2.0
+// @version      2.1
 // @description  自动为Pixiv收藏夹内图片打上已有的标签
 // @description:en    Automatically add existing labels for images in the bookmarks
 // @author       Ziqing19
@@ -63,48 +63,48 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
   `;
   
   // get token
-  const tokenRaw = await fetch("https://www.pixiv.net/bookmark_add.php?type=illust&illust_id=83540927");
-  if (!tokenRaw.ok) {
-    return alert(`获取token失败
-    Fail to fetch token`);
+  const userRaw = await fetch("https://www.pixiv.net/bookmark_add.php?type=illust&illust_id=83540927");
+  if (!userRaw.ok) {
+    return alert(`获取身份信息失败
+    Fail to fetch user information`);
   }
-  const tokenRes = await tokenRaw.text();
-  const tokenPos = tokenRes.indexOf("pixiv.context.token");
-  const tokenEnd = tokenRes.indexOf(";", tokenPos);
-  const token = tokenRes.slice(tokenPos, tokenEnd).split("\"")[1];
-  // TODO
-  // console.log(token);
+  const userRes = await userRaw.text();
+  const tokenPos = userRes.indexOf("pixiv.context.token");
+  const tokenEnd = userRes.indexOf(";", tokenPos);
+  const token = userRes.slice(tokenPos, tokenEnd).split("\"")[1];
+  console.log("token:", token);
   
   // get user uid
-  const uidRaw = await fetch("https://www.pixiv.net/bookmark.php");
-  if (!uidRaw.ok) {
-    return alert(`获取uid失败
+  const uidPos = userRes.indexOf("pixiv.user.id");
+  const uidEnd = userRes.indexOf(";", uidPos);
+  const uid = userRes.slice(uidPos, uidEnd).split("\"")[1];
+  console.log("uid:", uid);
+
+  if (!token) {
+  	console.log(`获取token失败
+    Fail to fetch token`);
+  }
+  if (!uid) {
+  	console.log(`获取uid失败
     Fail to fetch uid`);
   }
-  const uidRes = await uidRaw.text();
-  const uidPos = uidRes.indexOf("pixiv.context.userId");
-  const uidEnd = uidRes.indexOf(";", uidPos);
-  const uid = uidRes.slice(uidPos, uidEnd).split("\"")[1];
-  // TODO
-  // console.log(uid);
   
   // get user tags
   const tagsRaw = await fetch("https://www.pixiv.net/ajax/user/" + uid + "/illusts/bookmark/tags");
-  if (!tagsRaw.ok) {
-    return alert(`获取tags失败
-    Fail to fetch user tags`);
-  }
   const tagsObj = await tagsRaw.json();
+  if (!tagsRaw.ok || tagsObj.error === true) {
+    return alert(`获取tags失败
+    Fail to fetch user tags` + "\n" + decodeURI(tagsObj.message));
+  }
   const userTagsSet = new Set();
   for (let obj of tagsObj.body.public) {
-    userTagsSet.add(obj.tag);
+    userTagsSet.add(decodeURI(obj.tag));
   }
   for (let obj of tagsObj.body.private) {
-    userTagsSet.add(obj.tag);
+    userTagsSet.add(decodeURI(obj.tag));
   }
   const userTags = Array.from(userTagsSet);
-  // TODO
-  // console.log(userTags);
+  console.log("userTags:", userTags);
   
   // fetch bookmarks
   let total, index = 0, offset = 0;
@@ -124,11 +124,11 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
     const real_offset = tag === "未分類" ? offset : index;
     const bookmarksRaw = await fetch("https://www.pixiv.net/ajax/user/" + uid
       + "/illusts/bookmarks?tag=" + tag + "&offset="+ real_offset +"&limit=100&rest=" + publicationType);
-    if (!bookmarksRaw.ok) {
-      return alert(`获取用户收藏夹列表失败
-    Fail to fetch user bookmarks`);
-    }
     const bookmarksRes = await bookmarksRaw.json();
+    if (!bookmarksRaw.ok || bookmarksRes.error === true) {
+      return alert(`获取用户收藏夹列表失败
+    Fail to fetch user bookmarks` + "\n" + decodeURI(bookmarksRes.message));
+    }
     const bookmarks = bookmarksRes.body;
     // TODO
     // console.log(bookmarks);
@@ -140,11 +140,14 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
       if (work.title !== "-----") {
         const illust_id = work.id;
         const work_tags = work.tags;
-        const intersection = userTags.filter(tag => {
+        let intersection = userTags.filter(tag => {
           if (work_tags.includes(tag)) return true;
           const stripped = tag.split("(")[0];
           return work_tags.includes(stripped);
         });
+        if (intersection.length > 10) {
+        	intersection = intersection.slice(0, 10);
+        }
         if (addFirst === "true") {
           if (intersection.length === 0) {
             intersection.push(work_tags[0]);
