@@ -23,21 +23,26 @@ function cssElement(url) {
 
 const delay = ms => new Promise(res => setTimeout(res, ms));
 
-async function handleUpdate(token, illust_id, tags, retainComment, restricted) {
+async function handleUpdate(token, illust_id, tags, retainComment, retainTag, restricted) {
   const PIXIV_API_URL = "https://www.pixiv.net/rpc/index.php";
   const mode = "save_illust_bookmark";
   
-  let comment;
+  let comment, newTags;
   // get comment from the detailed page
-  if (retainComment) {
-    const commentRaw = await fetch("https://www.pixiv.net/bookmark_add.php?type=illust&illust_id=" + illust_id);
-    const commentRes = await commentRaw.text();
+  if (retainComment || retainTag) {
+    const docRaw = await fetch("https://www.pixiv.net/bookmark_add.php?type=illust&illust_id=" + illust_id);
+    const docRes = await docRaw.text();
     const parser = new DOMParser();
-    const doc = parser.parseFromString(commentRes, "text/html");
+    const doc = parser.parseFromString(docRes, "text/html");
     comment = doc.querySelector("div.input-box.ui-counter").firstElementChild.value;
+    const previousTags = doc.querySelector("div.input-box.tags").firstElementChild.value.trim().split(" ");
+    // remove the duplicate
+    newTags = Array.from(new Set(tags.concat(previousTags))).slice(0,10).join("+");
   } else {
     comment = "";
+    newTags = tags.join("+");
   }
+  console.log(comment, newTags);
   
   await fetch(PIXIV_API_URL, {
     method: "POST",
@@ -50,13 +55,13 @@ async function handleUpdate(token, illust_id, tags, retainComment, restricted) {
       `illust_id=${illust_id}`,
       `restrict=${!!restricted? 1 : 0}`,
       'comment'+(!!comment ? `=${comment}` : ''),
-      'tags'+(!!tags ? `=${tags}` : ''),
+      'tags'+(!!newTags ? `=${newTags}` : ''),
       `tt=${token}`,
     ].join('&'),
   });
 }
 
-async function handleStart(addFirst, addSAFE, tag, retainComment, publicationType) {
+async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainTag, publicationType) {
   window.runFlag = true;
   document.querySelector("#prompt").innerText = `处理中，请勿关闭窗口
   Processing. Please do not close the window.
@@ -79,13 +84,13 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
   const uidEnd = userRes.indexOf(";", uidPos);
   const uid = userRes.slice(uidPos, uidEnd).split("\"")[1];
   console.log("uid:", uid);
-
+  
   if (!token) {
-  	console.log(`获取token失败
+    console.log(`获取token失败
     Fail to fetch token`);
   }
   if (!uid) {
-  	console.log(`获取uid失败
+    console.log(`获取uid失败
     Fail to fetch uid`);
   }
   
@@ -121,16 +126,15 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
     }
   }, 1000);
   do {
-    const real_offset = tag === "未分類" ? offset : index;
+    const realOffset = tagToQuery === "未分類" ? offset : index;
     const bookmarksRaw = await fetch("https://www.pixiv.net/ajax/user/" + uid
-      + "/illusts/bookmarks?tag=" + tag + "&offset="+ real_offset +"&limit=100&rest=" + publicationType);
+      + "/illusts/bookmarks?tag=" + tagToQuery + "&offset="+ realOffset +"&limit=100&rest=" + publicationType);
     const bookmarksRes = await bookmarksRaw.json();
     if (!bookmarksRaw.ok || bookmarksRes.error === true) {
       return alert(`获取用户收藏夹列表失败
     Fail to fetch user bookmarks` + "\n" + decodeURI(bookmarksRes.message));
     }
     const bookmarks = bookmarksRes.body;
-    // TODO
     // console.log(bookmarks);
     if (!total) {
       total = bookmarks.total;
@@ -146,7 +150,7 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
           return work_tags.includes(stripped);
         });
         if (intersection.length > 10) {
-        	intersection = intersection.slice(0, 10);
+          intersection = intersection.slice(0, 10);
         }
         if (addFirst === "true") {
           if (intersection.length === 0) {
@@ -162,8 +166,8 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
         // only if the tags need to be modified
         // skip those unavailable links
         if (intersection.length !== 0) {
-          await handleUpdate(token, illust_id, intersection.join("+"),
-            retainComment === "true", publicationType === "show" ? 0 : 1);
+          await handleUpdate(token, illust_id, intersection,
+            retainComment === "true", retainTag==="true", publicationType === "show" ? 0 : 1);
         } else {
           offset++;
         }
@@ -178,7 +182,8 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
       if (!window.runFlag) return;
     }
     if (bookmarks.works.length === 0) {
-      return window.runFlag = false;
+      window.runFlag = false;
+      return;
     }
   } while (index < total);
   if (total === 0) {
@@ -217,7 +222,7 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
   popup.style.overflowX = "hidden";
   popup.style.background = "rgb(245,245,245)";
   popup.style.display = "none";
-  popup.classList = "py-3 px-4 rounded border border-secondary flex-column";
+  popup.className = "py-3 px-4 rounded border border-secondary flex-column";
   popup.id = "popup";
   
   const inner = document.createElement("div");
@@ -226,9 +231,9 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
   inner.style.overflowY = "scroll";
   
   const closeDiv = document.createElement("div");
-  closeDiv.classList = "d-flex justify-content-end mb-3";
+  closeDiv.className = "d-flex justify-content-end mb-3";
   const close = document.createElement("button");
-  close.classList = "btn btn-close";
+  close.className = "btn btn-close";
   close.addEventListener("click", () => {
     document.querySelector("#popup").style.display = "none";
   })
@@ -236,7 +241,7 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
   
   const promptDiv = document.createElement("div");
   promptDiv.id = "prompt";
-  promptDiv.classList = "flex-grow-1 text-center mb-4";
+  promptDiv.className = "flex-grow-1 text-center mb-4";
   promptDiv.innerHTML = `
     <div>如果对以下配置有疑惑，请参考
     <a href="https://greasyfork.org/zh-CN/scripts/423823-pixiv%E6%94%B6%E8%97%8F%E5%A4%B9%E8%87%AA%E5%8A%A8%E6%A0%87%E7%AD%BE?locale_override=1" style="text-decoration: underline">文档</a>
@@ -247,13 +252,13 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
   
   const select0 = document.createElement("select");
   select0.id = "select0";
-  select0.classList = "form-select mb-4";
+  select0.className = "form-select mb-4";
   const label0 = document.createElement("label");
   label0.htmlFor = "select0";
   label0.innerText = `无匹配时是否自动添加首个标签
     Whether the first tag will be added if there is not any match
     `;
-  label0.classList = "form-label mb-3 fw-light";
+  label0.className = "form-label mb-3 fw-light";
   const option00 = document.createElement("option");
   option00.innerText = "否 / No";
   option00.value = "false";
@@ -265,13 +270,13 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
   
   const select1 = document.createElement("select");
   select1.id = "select1";
-  select1.classList = "form-select mb-4";
+  select1.className = "form-select mb-4";
   const label1 = document.createElement("label");
   label1.htmlFor = "select1";
   label1.innerText = `是否为非R18作品自动添加"SAFE"标签
     Whether the "SAFE" tag will be added to non-R18 works
     `;
-  label1.classList = "form-label mb-3 fw-light";
+  label1.className = "form-label mb-3 fw-light";
   const option10 = document.createElement("option");
   option10.innerText = "否 / No";
   option10.value = "false";
@@ -283,13 +288,13 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
   
   const select2 = document.createElement("select");
   select2.id = "select2";
-  select2.classList = "form-select mb-4";
+  select2.className = "form-select mb-4";
   const label2 = document.createElement("label");
   label2.htmlFor = "select2";
   label2.innerText = `自动标签范围
     Auto Labeling For
   `;
-  label2.classList = "form-label mb-3 fw-light";
+  label2.className = "form-label mb-3 fw-light";
   const option20 = document.createElement("option");
   option20.innerText = "未分类作品 / Uncategorized Only";
   option20.value = "未分類";
@@ -313,29 +318,29 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
   
   const inputDiv0 = document.createElement("div")
   inputDiv0.id = "input_div_0";
-  inputDiv0.classList = "mb-4"
+  inputDiv0.className = "mb-4"
   inputDiv0.style.display = "none";
   const input0 = document.createElement("input");
   input0.id = "input0";
-  input0.classList = "form-control"
+  input0.className = "form-control"
   const labelInput0 = document.createElement("label");
   labelInput0.htmlFor = "input0";
   labelInput0.innerText = `自定义标签
   Custom Tag
   `
-  labelInput0.classList = "form-label mb-3 fw-light";
+  labelInput0.className = "form-label mb-3 fw-light";
   inputDiv0.appendChild(labelInput0);
   inputDiv0.appendChild(input0);
   
   const select3 = document.createElement("select");
   select3.id = "select3";
-  select3.classList = "form-select mb-4";
+  select3.className = "form-select mb-4";
   const label3 = document.createElement("label");
   label3.htmlFor = "select3";
   label3.innerText = `是否保留收藏评论（可能会降低性能）
     Whether the bookmark comment will be retained? (May reduce the performance)
   `;
-  label3.classList = "form-label mb-3 fw-light";
+  label3.className = "form-label mb-3 fw-light";
   const option30 = document.createElement("option");
   option30.innerText = "舍弃 / No";
   option30.value = "false";
@@ -345,15 +350,35 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
   select3.appendChild(option30);
   select3.appendChild(option31);
   
+  const select5 = document.createElement("select");
+  select5.id = "select5";
+  select5.className = "form-select mb-4";
+  const label5 = document.createElement("label");
+  label5.htmlFor = "select5";
+  label5.innerText = `是否保留之前的自定义标签（可能会降低性能）
+  如果之前并非完全使用此脚本管理标签，并且没有设置同义词词典，将会覆盖掉自定义设置的标签
+  Whether the previous custom bookmark tags will be retained? (May reduce the performance)
+  If you are not using the script to take fully control of your tags and haven't set your synonym dictionary, the custom tags will be overwritten.
+  `;
+  label5.className = "form-label mb-3 fw-light";
+  const option50 = document.createElement("option");
+  option50.innerText = "舍弃 / No";
+  option50.value = "false";
+  const option51 = document.createElement("option");
+  option51.innerText = "保留 / Yes";
+  option51.value = "true";
+  select5.appendChild(option50);
+  select5.appendChild(option51);
+  
   const select4 = document.createElement("select");
   select4.id = "select4";
-  select4.classList = "form-select mb-4";
+  select4.className = "form-select mb-4";
   const label4 = document.createElement("label");
   label4.htmlFor = "select4";
   label4.innerText = `作品公开类型
   Publication Type for Labeling
   `;
-  label4.classList = "form-label mb-3 fw-light";
+  label4.className = "form-label mb-3 fw-light";
   const option40 = document.createElement("option");
   option40.innerText = "公开 / Public";
   option40.value = "show";
@@ -368,37 +393,37 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
   const progressBar = document.createElement("div");
   progress.id = "progress";
   progress.style.minHeight = "1rem";
-  progress.classList = "progress mb-5";
-  progressBar.classList = "progress-bar progress-bar-striped progress-bar-animated";
+  progress.className = "progress mb-5";
+  progressBar.className = "progress-bar progress-bar-striped progress-bar-animated";
   progressBar.role = "progressbar";
   progressBar.id = "progress_bar";
   progressBar.style.width = "0";
   labelProgress.htmlFor = "progress";
   labelProgress.innerText = `执行进度
   Progress`;
-  labelProgress.classList = "form-label mb-3 fw-light";
+  labelProgress.className = "form-label mb-3 fw-light";
   progress.appendChild(progressBar);
   
   const buttonDiv = document.createElement("div");
-  buttonDiv.classList = "d-flex my-4";
+  buttonDiv.className = "d-flex my-4";
   const closeButton = document.createElement("button");
   closeButton.innerText = "Close";
-  closeButton.classList = "btn btn-secondary me-auto";
+  closeButton.className = "btn btn-secondary me-auto";
   closeButton.addEventListener("click", () => {
     document.querySelector("#popup").style.display = "none";
   })
   const stopButton = document.createElement("button");
   stopButton.innerText = "Stop";
-  stopButton.classList = "btn btn-danger me-3";
+  stopButton.className = "btn btn-danger me-3";
   stopButton.addEventListener("click", () => {
     window.runFlag = false;
   })
   const initButton = document.createElement("button");
   initButton.innerText = "Start";
-  initButton.classList = "btn btn-primary";
+  initButton.className = "btn btn-primary";
   initButton.addEventListener("click", () => {
     handleStart(select0.value, select1.value, input0.value === "" ? select2.value : input0.value,
-      select3.value, select4.value).catch(alert);
+      select3.value,select5.value, select4.value).catch(alert);
   });
   buttonDiv.appendChild(closeButton);
   buttonDiv.appendChild(stopButton);
@@ -415,6 +440,8 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
   inner.appendChild(inputDiv0);
   inner.appendChild(label3);
   inner.appendChild(select3);
+  inner.appendChild(label5);
+  inner.appendChild(select5);
   inner.appendChild(label4);
   inner.appendChild(select4);
   inner.appendChild(labelProgress);
@@ -438,14 +465,14 @@ async function handleStart(addFirst, addSAFE, tag, retainComment, publicationTyp
       clearInterval(intervalId);
       root.classList.add("d-flex");
       const container = document.createElement("span")
-      container.classList = "flex-grow-1 d-flex justify-content-end";
+      container.className = "flex-grow-1 d-flex justify-content-end";
       const labelButton = document.createElement("button");
       if (window.location.href.includes("en")) {
         labelButton.innerText = "Label Bookmarks";
       } else {
         labelButton.innerText = "自动添加标签 / Label Bookmarks";
       }
-      labelButton.classList = "btn btn-secondary";
+      labelButton.className = "btn btn-secondary";
       labelButton.addEventListener("click" ,() => {
         document.querySelector("#popup").style.display = "flex";
       })
