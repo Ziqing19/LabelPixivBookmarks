@@ -78,6 +78,8 @@
 
 - The next time using the script, you need to ***LOAD*** the dictionary file before start, or your synonym rules will not be applied.
 
+- ***Load Tag*** is for loading existed tag and its aliases from the dictionary. By entering the target tag and clicking ***Load Tag***, the aliases will be copied to the input zone. Of course, you can also do this manually.   
+
 ![step5](./assets/05.JPG)
 
 - After executed the script, all images with either the user tag, or the alias tag have been categorized to your user tag.
@@ -194,7 +196,8 @@ Please report bugs or new features expected at [Github](https://github.com/Ziqin
 - 在这个版本中我提供了可以加载同义词词典的选项。第一次使用时可以略过***加载词典文件***的选项。目标标签，指的是您希望保存在您收藏夹中的用户标签的名字。同义词则是那些您希望脚本将其识别为目标标签的作品本身提供的标签
 - 点击***更新标签***将输入的内容加载到词典中，然后将会在下方的预览区域展示出来。如果您在同义词一栏空白的情况下更新，将会把目标标签从词典中删除
 - 在制作完词典后，请一定记得***保存***您的词典到本地
-- 下次使用时，您需要从本地加载上次使用过的词典，否则设定的同义词规则不会被应用到这次的分类中
+- 下次使用时，您需要从本地***加载***上次使用过的词典，否则设定的同义词规则不会被应用到这次的分类中
+- ***加载标签***按钮用于从词典中载入标签对应的同义词，在***目标标签***一栏中输入标签名，点击***加载标签***即可。当然也可以手动复制粘贴
   
 ![step5](./assets/05.JPG)
 

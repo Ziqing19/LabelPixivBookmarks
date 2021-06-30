@@ -503,7 +503,7 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
     // update the alias array
     buttons[2].addEventListener("click", (evt) => {
       evt.preventDefault();
-      const targetValue = targetTag.value;
+      const targetValue = targetTag.value.split(" ")[0];
       const aliasValue = alias.value;
       if (aliasValue === "") {
         // delete
