@@ -1,5 +1,7 @@
 # Label Pixiv Bookmarks
 
+<a href="#cn_doc">中文文档</a>
+
 ## Automatically add existing labels for images in the bookmarks
 
 ## Intro
@@ -130,7 +132,8 @@ The idea of the script and part of the code comes from `https://greasyfork.org/e
 Please report bugs or new features expected at [Github](https://github.com/Ziqing19/LabelPixivBookmarks).
 
 
-## 自动为Pixiv收藏夹内图片打上已有的标签
+
+<h1 id="cn_doc">自动为Pixiv收藏夹内图片打上已有的标签</h1>
 
 ## 工作原理
 
