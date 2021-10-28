@@ -11,74 +11,122 @@
 // @icon         https://www.google.com/s2/favicons?domain=pixiv.net
 // @resource     bootstrapCSS https://cdn.jsdelivr.net/npm/bootstrap@5.0.1/dist/css/bootstrap.min.css
 // @resource     bootstrapJS https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js
+// @grant        unsafeWindow
 // @grant        GM_getResourceURL
+// @grant        GM_getValue
+// @grant        GM_setValue
 // ==/UserScript==
 
 function cssElement(url) {
   const link = document.createElement("link");
   link.href = url;
-  link.rel="stylesheet";
-  link.type="text/css";
+  link.rel = "stylesheet";
+  link.type = "text/css";
   return link;
 }
 
 function jsElement(url) {
   const script = document.createElement("script");
   script.src = url;
-  script.integrity = "sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM";
+  script.integrity =
+    "sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM";
   script.crossOrigin = "anonymous";
   return script;
 }
 
-const delay = ms => new Promise(res => setTimeout(res, ms));
+const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
-async function handleUpdate(token, illust_id, tags, retainComment, retainTag, restricted) {
+async function handleUpdate(
+  token,
+  illust_id,
+  tags,
+  retainComment,
+  retainTag,
+  restricted
+) {
   const PIXIV_API_URL = "https://www.pixiv.net/rpc/index.php";
   const mode = "save_illust_bookmark";
-  
+
   let comment, newTags;
   // get comment from the detailed page
   if (retainComment || retainTag) {
-    const docRaw = await fetch("https://www.pixiv.net/bookmark_add.php?type=illust&illust_id=" + illust_id);
+    const docRaw = await fetch(
+      "https://www.pixiv.net/bookmark_add.php?type=illust&illust_id=" +
+        illust_id
+    );
     const docRes = await docRaw.text();
     const parser = new DOMParser();
     const doc = parser.parseFromString(docRes, "text/html");
-    comment = doc.querySelector("div.input-box.ui-counter").firstElementChild.value;
-    const previousTags = doc.querySelector("div.input-box.tags").firstElementChild.value.trim().split(" ");
+    comment = doc.querySelector("div.input-box.ui-counter").firstElementChild
+      .value;
+    const previousTags = doc
+      .querySelector("div.input-box.tags")
+      .firstElementChild.value.trim()
+      .split(" ");
     // remove the duplicate
-    newTags = Array.from(new Set(tags.concat(previousTags))).slice(0,10).join("+");
+    newTags = Array.from(new Set(tags.concat(previousTags)))
+      .slice(0, 10)
+      .join("+");
   } else {
     comment = "";
     newTags = tags.join("+");
   }
   console.log(comment, newTags);
-  
+
   await fetch(PIXIV_API_URL, {
     method: "POST",
     headers: {
-      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
     },
     credentials: "same-origin",
     body: [
       `mode=${mode}`,
       `illust_id=${illust_id}`,
-      `restrict=${!!restricted? 1 : 0}`,
-      'comment'+(!!comment ? `=${comment}` : ''),
-      'tags'+(!!newTags ? `=${newTags}` : ''),
+      `restrict=${!!restricted ? 1 : 0}`,
+      "comment" + (!!comment ? `=${comment}` : ""),
+      "tags" + (!!newTags ? `=${newTags}` : ""),
       `tt=${token}`,
-    ].join('&'),
+    ].join("&"),
   });
 }
 
-async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainTag, publicationType, synonymDict) {
+async function handleStart(
+  addFirst,
+  addSAFE,
+  tagToQuery,
+  retainComment,
+  retainTag,
+  publicationType,
+  synonymDict
+) {
+  console.log("Configuration:");
+  console.log(
+    "addFirst",
+    addFirst,
+    "addSAFE",
+    addSAFE,
+    "tag",
+    tagToQuery,
+    "retainComment",
+    retainComment,
+    "retainTag",
+    retainTag,
+    "publicationType",
+    publicationType
+  );
+
   window.runFlag = true;
   const promptBottom = document.querySelector("#prompt");
   promptBottom.innerText = `处理中，请勿关闭窗口
   Processing. Please do not close the window.
   `;
-  
+  const objDiv = document.querySelector("#popup > div");
+  objDiv.scrollTop = objDiv.scrollHeight;
+
   // get token
-  const userRaw = await fetch("https://www.pixiv.net/bookmark_add.php?type=illust&illust_id=83540927");
+  const userRaw = await fetch(
+    "https://www.pixiv.net/bookmark_add.php?type=illust&illust_id=83540927"
+  );
   if (!userRaw.ok) {
     return alert(`获取身份信息失败
     Fail to fetch user information`);
@@ -86,15 +134,15 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
   const userRes = await userRaw.text();
   const tokenPos = userRes.indexOf("pixiv.context.token");
   const tokenEnd = userRes.indexOf(";", tokenPos);
-  const token = userRes.slice(tokenPos, tokenEnd).split("\"")[1];
+  const token = userRes.slice(tokenPos, tokenEnd).split('"')[1];
   console.log("token:", token);
-  
+
   // get user uid
   const uidPos = userRes.indexOf("pixiv.user.id");
   const uidEnd = userRes.indexOf(";", uidPos);
-  const uid = userRes.slice(uidPos, uidEnd).split("\"")[1];
+  const uid = userRes.slice(uidPos, uidEnd).split('"')[1];
   console.log("uid:", uid);
-  
+
   if (!token) {
     console.log(`获取token失败
     Fail to fetch token`);
@@ -103,13 +151,19 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
     console.log(`获取uid失败
     Fail to fetch uid`);
   }
-  
+
   // get user tags
-  const tagsRaw = await fetch("https://www.pixiv.net/ajax/user/" + uid + "/illusts/bookmark/tags");
+  const tagsRaw = await fetch(
+    "https://www.pixiv.net/ajax/user/" + uid + "/illusts/bookmark/tags"
+  );
   const tagsObj = await tagsRaw.json();
   if (!tagsRaw.ok || tagsObj.error === true) {
-    return alert(`获取tags失败
-    Fail to fetch user tags` + "\n" + decodeURI(tagsObj.message));
+    return alert(
+      `获取tags失败
+    Fail to fetch user tags` +
+        "\n" +
+        decodeURI(tagsObj.message)
+    );
   }
   const userTagsSet = new Set();
   for (let obj of tagsObj.body.public) {
@@ -120,15 +174,17 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
   }
   const userTags = Array.from(userTagsSet);
   console.log("userTags:", userTags);
-  
+
   // fetch bookmarks
-  let total, index = 0, offset = 0;
+  let total,
+    index = 0,
+    offset = 0;
   // update progress bar
   const progressBar = document.querySelector("#progress_bar");
-  const intervalId =  setInterval(() => {
+  const intervalId = setInterval(() => {
     if (total) {
       progressBar.innerText = index + "/" + total;
-      const ratio = (index / total * 100).toFixed(2);
+      const ratio = ((index / total) * 100).toFixed(2);
       progressBar.style.width = ratio + "%";
       if (!window.runFlag || index === total) {
         console.log("Progress bar stops updating");
@@ -138,12 +194,24 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
   }, 1000);
   do {
     const realOffset = tagToQuery === "未分類" ? offset : index;
-    const bookmarksRaw = await fetch("https://www.pixiv.net/ajax/user/" + uid
-      + "/illusts/bookmarks?tag=" + tagToQuery + "&offset="+ realOffset +"&limit=100&rest=" + publicationType);
+    const bookmarksRaw = await fetch(
+      "https://www.pixiv.net/ajax/user/" +
+        uid +
+        "/illusts/bookmarks?tag=" +
+        tagToQuery +
+        "&offset=" +
+        realOffset +
+        "&limit=100&rest=" +
+        publicationType
+    );
     const bookmarksRes = await bookmarksRaw.json();
     if (!bookmarksRaw.ok || bookmarksRes.error === true) {
-      return alert(`获取用户收藏夹列表失败
-    Fail to fetch user bookmarks` + "\n" + decodeURI(bookmarksRes.message));
+      return alert(
+        `获取用户收藏夹列表失败
+    Fail to fetch user bookmarks` +
+          "\n" +
+          decodeURI(bookmarksRes.message)
+      );
     }
     const bookmarks = bookmarksRes.body;
     console.log(bookmarks);
@@ -156,16 +224,39 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
       if (work.title !== "-----") {
         const illust_id = work.id;
         const workTags = work.tags;
-        let intersection = userTags.filter(userTag => {
+        let intersection = userTags.filter((userTag) => {
           // if work tags includes this user tag
-          if (workTags.includes(userTag)) return true;
-          // if work tags match an user alias
-          if (synonymDict[userTag]
-            && synonymDict[userTag].filter(alias => workTags.includes(alias)).length > 0) return true;
-          // without parody name
-          const stripped = userTag.split("(")[0];
-          return workTags.includes(stripped);
+          if (
+            workTags.includes(userTag) ||
+            workTags.includes(userTag.split("(")[0])
+          )
+            return true;
+          // if work tags match an user alias (exact match)
+          return (
+            synonymDict[userTag] &&
+            synonymDict[userTag].find(
+              (alias) =>
+                workTags.includes(alias) ||
+                workTags.includes(alias.split("(")[0])
+            )
+          );
         });
+        // if workTags match some alias, add it to the intersection (exact match, with or without parody name)
+        intersection = intersection.concat(
+          workTags
+            .map((workTag) => {
+              for (let aliasName of Object.keys(synonymDict)) {
+                if (
+                  synonymDict[aliasName].includes(workTag) ||
+                  synonymDict[aliasName].includes(workTag.split("(")[0])
+                )
+                  return aliasName;
+              }
+            })
+            .filter((i) => i)
+        );
+        // remove duplicate
+        intersection = Array.from(new Set(intersection));
         // pixiv limits
         if (intersection.length > 10) {
           intersection = intersection.slice(0, 10);
@@ -184,8 +275,14 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
         // only if the tags need to be modified
         // skip those unavailable links
         if (intersection.length !== 0) {
-          await handleUpdate(token, illust_id, intersection,
-            retainComment === "true", retainTag==="true", publicationType === "show" ? 0 : 1);
+          await handleUpdate(
+            token,
+            illust_id,
+            intersection,
+            retainComment === "true",
+            retainTag === "true",
+            publicationType === "show" ? 0 : 1
+          );
         } else {
           offset++;
         }
@@ -201,6 +298,8 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
         promptBottom.innerText = `检测到停止信号，程序已停止运行
   Stop signal detected. Program exits.
   `;
+        index = total;
+        break;
       }
     }
   } while (index < total);
@@ -209,14 +308,16 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
   Works needed to be labeled not found. Please close the window.
   `;
   } else {
-    document.querySelector("#prompt").innerText = `自动添加标签已完成，请关闭窗口并刷新网页
+    document.querySelector(
+      "#prompt"
+    ).innerText = `自动添加标签已完成，请关闭窗口并刷新网页
   Auto labeling finished successfully. Please close the window and refresh.
   `;
   }
 }
 
-(function() {
-  'use strict';
+(function () {
+  "use strict";
   document.head.appendChild(cssElement(GM_getResourceURL("bootstrapCSS")));
   document.head.appendChild(jsElement(GM_getResourceURL("bootstrapJS")));
   if (window.location.href.includes("https://www.pixiv.net/bookmark.php")) {
@@ -225,7 +326,7 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
       el.style.fontSize = "1rem";
     }
   }
-  
+
   const shade = document.createElement("div");
   shade.className = "position-fixed";
   shade.style.width = "100vw";
@@ -236,7 +337,7 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
   shade.style.display = "none";
   shade.style.opacity = "0";
   shade.style.transition = "opacity 0.2s ease 0s";
-  
+
   const popup = document.createElement("div");
   popup.style.width = "47rem";
   popup.style.position = "fixed";
@@ -256,13 +357,13 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
   popup.className = "py-3 px-4 rounded border border-secondary flex-column";
   popup.id = "popup";
   popup.style.transition = "opacity 0.2s ease 0s";
-  
+
   const inner = document.createElement("div");
   inner.style.width = "48rem";
   inner.style.paddingLeft = "0.2rem";
   inner.style.paddingRight = "3rem";
   inner.style.overflowY = "scroll";
-  
+
   const closeDiv = document.createElement("div");
   closeDiv.className = "d-flex justify-content-end mb-3";
   const close = document.createElement("button");
@@ -270,23 +371,25 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
   close.addEventListener("click", () => {
     popup.style.opacity = "0";
     shade.style.opacity = "0";
-    setTimeout(()=> {
+    setTimeout(() => {
       popup.style.display = "none";
       shade.style.display = "none";
     }, 200);
-  })
+  });
   closeDiv.appendChild(close);
-  
+
   const promptTop = document.createElement("div");
   promptTop.className = "flex-grow-1 text-center mb-4";
   promptTop.innerHTML = `
     <div>如果对以下配置有疑惑，请参考
-      <a href="https://greasyfork.org/zh-CN/scripts/423823-pixiv%E6%94%B6%E8%97%8F%E5%A4%B9%E8%87%AA%E5%8A%A8%E6%A0%87%E7%AD%BE?locale_override=1" style="text-decoration: underline">文档</a>
+      <a href="https://greasyfork.org/zh-CN/scripts/423823-pixiv%E6%94%B6%E8%97%8F%E5%A4%B9%E8%87%AA%E5%8A%A8%E6%A0%87%E7%AD%BE?locale_override=1" style="text-decoration: underline"
+      target="_blank" rel="noreferrer">文档</a>
     </div>
     <div>Please refer to the
-      <a href="https://greasyfork.org/en/scripts/423823-pixiv%E6%94%B6%E8%97%8F%E5%A4%B9%E8%87%AA%E5%8A%A8%E6%A0%87%E7%AD%BE" style="text-decoration: underline">document</a> if confused.
+      <a href="https://greasyfork.org/en/scripts/423823-pixiv%E6%94%B6%E8%97%8F%E5%A4%B9%E8%87%AA%E5%8A%A8%E6%A0%87%E7%AD%BE" style="text-decoration: underline"
+       target="_blank" rel="noreferrer">document</a> if confused.
     </div>`;
-  
+
   const select0 = document.createElement("select");
   select0.id = "select0";
   select0.className = "form-select mb-4";
@@ -304,7 +407,7 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
   option01.value = "true";
   select0.appendChild(option00);
   select0.appendChild(option01);
-  
+
   const select1 = document.createElement("select");
   select1.id = "select1";
   select1.className = "form-select mb-4";
@@ -322,7 +425,7 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
   option11.value = "true";
   select1.appendChild(option10);
   select1.appendChild(option11);
-  
+
   const select2 = document.createElement("select");
   select2.id = "select2";
   select2.className = "form-select mb-4";
@@ -351,24 +454,26 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
     } else {
       div.style.display = "none";
     }
-  })
-  
-  const inputDiv0 = document.createElement("div")
+  });
+
+  const inputDiv0 = document.createElement("div");
   inputDiv0.id = "input_div_0";
-  inputDiv0.className = "mb-4"
-  inputDiv0.style.display = "none";
+  inputDiv0.className = "mb-4";
+  const s2Value = GM_getValue("tagToQuery", "未分類");
+  if (s2Value === "未分類" || s2Value === "") inputDiv0.style.display = "none";
+  else inputDiv0.style.display = "block";
   const input0 = document.createElement("input");
   input0.id = "input0";
-  input0.className = "form-control"
+  input0.className = "form-control";
   const labelInput0 = document.createElement("label");
   labelInput0.htmlFor = "input0";
   labelInput0.innerText = `自定义标签
   Custom Tag
-  `
+  `;
   labelInput0.className = "form-label mb-3 fw-light";
   inputDiv0.appendChild(labelInput0);
   inputDiv0.appendChild(input0);
-  
+
   const select3 = document.createElement("select");
   select3.id = "select3";
   select3.className = "form-select mb-4";
@@ -386,7 +491,7 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
   option31.value = "true";
   select3.appendChild(option30);
   select3.appendChild(option31);
-  
+
   const select5 = document.createElement("select");
   select5.id = "select5";
   select5.className = "form-select mb-4";
@@ -406,7 +511,7 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
   option51.value = "true";
   select5.appendChild(option50);
   select5.appendChild(option51);
-  
+
   const select4 = document.createElement("select");
   select4.id = "select4";
   select4.className = "form-select mb-4";
@@ -424,7 +529,7 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
   option41.value = "hide";
   select4.appendChild(option40);
   select4.appendChild(option41);
-  
+
   const synonymContainer = document.createElement("div");
   synonymContainer.innerHTML = `
   <div class="mb-3">
@@ -438,57 +543,74 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
       <label class="form-label fw-light" for="synonym_dict_input">
         加载词典文件 / Load Dictionary
       </label>
-      <input class="form-control border mb-3" type="file" accept="application/json" id="synonym_dict_input" />
+      <input class="form-control border mb-3" type="file" accept="application/json" id="synonym_dict_input"/>
       <label class="form-label fw-light" for="target_tag">目标标签（用户标签） / Target Tag (User Tag)</label>
-      <input class="form-control mb-3" type="text" id="target_tag">
+      <input class="form-control mb-3" type="text" id="target_tag" placeholder="eg: 新世紀エヴァンゲリオン">
       <label class="form-label fw-light" for="tag_alias">同义词（作品标签，空格分割） / Alias (From Artwork, Space Delimited)</label>
-      <input class="form-control mb-3" type="text" id="tag_alias">
+      <input class="form-control mb-3" type="text" id="tag_alias" placeholder="eg: エヴァンゲリオン evangelion Evangelion eva EVA">
       <div class="d-flex mb-3" id="synonym_buttons">
-        <button class="btn btn-outline-primary me-auto">保存 / Save Dict</button>
+        <button class="btn btn-outline-primary me-auto">导出词典 / Export Dict</button>
         <button class="btn btn-outline-primary me-3">加载标签 / Load Tag</button>
         <button class="btn btn-outline-primary">更新标签 / Update Tag</button>
       </div>
-      <div class="mb-2 fw-light">预览 / Preview</div>
-      <div id="synonym_preview" style="white-space: pre-wrap"/>
+      <div class="mb-2 fw-light d-flex">
+        <div class="me-auto">预览 / Preview</div>
+        <div role="button" style="text-decoration: underline" id="sort_synonym">排序 / Sort</div>
+      </div>
+      <div class="mb-2 position-relative">
+        <input type="text" class="form-control mb-2" id="synonym_filter" placeholder="筛选 / Filter">
+        <button class="position-absolute btn btn-close end-0 top-50 translate-middle" id="clear_synonym_filter"/>
+      </div>
+      <div id="synonym_preview" class="border py-1 px-3" style="white-space: pre-wrap; min-height: 100px; max-height: 400px; overflow-y: scroll"/>
     </div>
   </div>
   `;
-  let synonymDict = {};
+  let synonymDict = GM_getValue("synonymDict", {});
   function loadSynonymEventListener() {
     const targetTag = document.querySelector("#target_tag");
     const alias = document.querySelector("#tag_alias");
     const preview = document.querySelector("#synonym_preview");
-    const buttons = document.querySelector("#synonym_buttons").querySelectorAll("button");
+    const buttons = document
+      .querySelector("#synonym_buttons")
+      .querySelectorAll("button");
     // update preview
-    function updatePreview() {
+    function updatePreview(synonymDict) {
       let synonymString = "";
       for (let key of Object.keys(synonymDict)) {
         synonymString += key + "\n\t" + synonymDict[key].join(" ") + "\n\n";
       }
       preview.innerText = synonymString;
     }
+    updatePreview(synonymDict);
+
     // on json file load
-    document.querySelector("#synonym_dict_input").addEventListener("change", (evt) => {
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        try {
-          synonymDict = JSON.parse(evt.target.result.toString());
-          updatePreview();
-        } catch (err) {
-          alert("无法加载词典 / Fail to load dictionary\n" + err);
-        }
-      }
-      reader.readAsText(evt.target.files[0]);
-    })
+    document
+      .querySelector("#synonym_dict_input")
+      .addEventListener("change", (evt) => {
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          try {
+            synonymDict = JSON.parse(evt.target.result.toString());
+            GM_setValue("synonymDict", synonymDict);
+            updatePreview(synonymDict);
+          } catch (err) {
+            alert("无法加载词典 / Fail to load dictionary\n" + err);
+          }
+        };
+        reader.readAsText(evt.target.files[0]);
+      });
+    // export dict
     buttons[0].addEventListener("click", (evt) => {
       evt.preventDefault();
       const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([JSON.stringify(synonymDict)], {
-        type: "application/json"
-      }));
+      a.href = URL.createObjectURL(
+        new Blob([JSON.stringify(synonymDict)], {
+          type: "application/json",
+        })
+      );
       a.setAttribute("download", "label_pixiv_bookmarks_synonym_dict.json");
       a.click();
-    })
+    });
     // load alias
     buttons[1].addEventListener("click", (evt) => {
       evt.preventDefault();
@@ -496,14 +618,18 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
       for (let key of Object.keys(synonymDict)) {
         if (key === targetValue) {
           alias.value = synonymDict[key].join(" ");
-          updatePreview();
+          updatePreview(synonymDict);
         }
       }
-    })
+    });
     // update the alias array
     buttons[2].addEventListener("click", (evt) => {
       evt.preventDefault();
-      const targetValue = targetTag.value.split(" ")[0];
+      const targetValue = targetTag.value
+        .split(" ")[0]
+        .replace("（", "(")
+        .replace("）", ")");
+      navigator.clipboard.writeText(targetValue).catch(console.log);
       const aliasValue = alias.value;
       if (aliasValue === "") {
         // delete
@@ -516,33 +642,81 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
       }
       targetTag.value = "";
       alias.value = "";
-      updatePreview();
+      GM_setValue("synonymDict", synonymDict);
+      updatePreview(synonymDict);
     });
+    // sort
+    document.querySelector("#sort_synonym").addEventListener("click", () => {
+      const keys = Object.keys(synonymDict);
+      const keysWithParody = keys.filter((key) => key.includes("("));
+      const keysWithoutParody = keys.filter((key) => !key.includes("("));
+      const sortFunc = (a, b) => a.localeCompare(b, "zh-CN");
+      keysWithoutParody.sort(sortFunc);
+      keysWithParody.sort(sortFunc);
+      keysWithParody.sort((a, b) => sortFunc(a.split("(")[1], b.split("(")[1]));
+      const newDict = {};
+      for (let key of keysWithoutParody) {
+        newDict[key] = synonymDict[key];
+      }
+      for (let key of keysWithParody) {
+        newDict[key] = synonymDict[key];
+      }
+      synonymDict = newDict;
+      GM_setValue("synonymDict", synonymDict);
+      updatePreview(synonymDict);
+    });
+    // filter
+    document
+      .querySelector("input#synonym_filter")
+      .addEventListener("input", (evt) => {
+        const filter = evt.target.value;
+        if (filter.length) {
+          if (filter === " ") return;
+          const filteredKeys = Object.keys(synonymDict).filter((key) =>
+            key.toUpperCase().includes(filter.toUpperCase())
+          );
+          const newDict = {};
+          for (let key of filteredKeys) {
+            newDict[key] = synonymDict[key];
+          }
+          updatePreview(newDict);
+        } else {
+          updatePreview(synonymDict);
+        }
+      });
+    // clear
+    document
+      .querySelector("button#clear_synonym_filter")
+      .addEventListener("click", () => {
+        document.querySelector("input#synonym_filter").value = "";
+        updatePreview(synonymDict);
+      });
   }
-  
-  const inputDiv1 = document.createElement("div")
+
+  const inputDiv1 = document.createElement("div");
   inputDiv1.id = "input_div_1";
-  inputDiv1.className = "mb-4"
+  inputDiv1.className = "mb-4";
   inputDiv1.style.display = "none";
   const input1 = document.createElement("input");
   input1.id = "input1";
-  input1.className = "form-control"
+  input1.className = "form-control";
   const labelInput1 = document.createElement("label");
   labelInput1.htmlFor = "input1";
   labelInput1.innerText = `自定义标签
   Custom Tag
-  `
+  `;
   labelInput1.className = "form-label mb-3 fw-light";
   inputDiv1.appendChild(labelInput1);
   inputDiv1.appendChild(input1);
-  
+
   const labelProgress = document.createElement("label");
   const progress = document.createElement("div");
   const progressBar = document.createElement("div");
   progress.id = "progress";
   progress.style.minHeight = "1rem";
   progress.className = "progress mb-4";
-  progressBar.className = "progress-bar progress-bar-striped progress-bar-animated";
+  progressBar.className =
+    "progress-bar progress-bar-striped progress-bar-animated";
   progressBar.role = "progressbar";
   progressBar.id = "progress_bar";
   progressBar.style.width = "0";
@@ -551,11 +725,11 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
   Progress`;
   labelProgress.className = "form-label mb-3 fw-light";
   progress.appendChild(progressBar);
-  
+
   const promptBottom = document.createElement("div");
   promptBottom.className = "flex-grow-1 text-center mb-5";
   promptBottom.id = "prompt";
-  
+
   const buttonDiv = document.createElement("div");
   buttonDiv.className = "d-flex my-4";
   const closeButton = document.createElement("button");
@@ -564,24 +738,32 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
   closeButton.addEventListener("click", () => {
     popup.style.display = "none";
     shade.style.display = "none";
-  })
+  });
   const stopButton = document.createElement("button");
   stopButton.innerText = "Stop";
   stopButton.className = "btn btn-danger me-3";
   stopButton.addEventListener("click", () => {
     window.runFlag = false;
-  })
+  });
   const initButton = document.createElement("button");
   initButton.innerText = "Start";
   initButton.className = "btn btn-primary";
+  // entry
   initButton.addEventListener("click", () => {
-    handleStart(select0.value, select1.value, input0.value === "" ? select2.value : input0.value,
-      select3.value,select5.value, select4.value, synonymDict).catch(alert);
+    handleStart(
+      select0.value,
+      select1.value,
+      input0.value === "" ? select2.value : input0.value,
+      select3.value,
+      select5.value,
+      select4.value,
+      synonymDict
+    ).catch(alert);
   });
   buttonDiv.appendChild(closeButton);
   buttonDiv.appendChild(stopButton);
   buttonDiv.appendChild(initButton);
-  
+
   inner.appendChild(closeDiv);
   inner.appendChild(promptTop);
   inner.appendChild(label0);
@@ -603,10 +785,10 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
   inner.appendChild(promptBottom);
   inner.appendChild(buttonDiv);
   popup.appendChild(inner);
-  
+
   // button to start labeling
   let root;
-  const intervalId = setInterval(()=> {
+  const intervalId = setInterval(() => {
     let rootClass;
     if (window.location.href.includes("https://www.pixiv.net/bookmark.php")) {
       // old UI
@@ -629,15 +811,15 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
     if (root) {
       clearInterval(intervalId);
       root.classList.add("d-flex");
-      const container = document.createElement("span")
+      const container = document.createElement("span");
       container.className = "flex-grow-1 d-flex justify-content-end";
       const labelButton = document.createElement("button");
-      if (window.location.href.includes("en")) {
-        labelButton.innerText = "Label Bookmarks";
+      if (unsafeWindow.dataLayer[0].lang.includes("zh")) {
+        labelButton.innerText = "自动添加标签";
       } else {
-        labelButton.innerText = "自动添加标签 / Label Bookmarks";
+        labelButton.innerText = "Label Bookmarks";
       }
-  
+
       labelButton.style.paddingRight = "24px";
       labelButton.style.paddingLeft = "24px";
       labelButton.style.background = "transparent";
@@ -652,43 +834,88 @@ async function handleStart(addFirst, addSAFE, tagToQuery, retainComment, retainT
         labelButton.style.borderRight = "none";
         labelButton.style.borderBottom = "none";
         labelButton.style.color = "rgba(0, 0, 0, 0.32)";
-        labelButton.style.lineHeight = "24px"
+        labelButton.style.lineHeight = "24px";
         labelButton.style.background = "transparent";
-        labelButton.style.transition = "color 0.4s ease 0s, border 0.4s ease 0s";
+        labelButton.style.transition =
+          "color 0.4s ease 0s, border 0.4s ease 0s";
         labelButton.addEventListener("mouseenter", () => {
           labelButton.style.borderTop = "4px solid rgb(0, 150, 250)";
           labelButton.style.color = "rgba(0, 0, 0, 0.88)";
-        })
+        });
         labelButton.addEventListener("mouseleave", () => {
           labelButton.style.borderTop = "4px solid rgba(0, 150, 250, 0)";
           labelButton.style.color = "rgba(0, 0, 0, 0.32)";
-        })
+        });
       }
-      
-      labelButton.addEventListener("click" ,() => {
+
+      labelButton.addEventListener("click", () => {
         popup.style.display = "flex";
         shade.style.display = "flex";
         setTimeout(() => {
           popup.style.opacity = "1";
           shade.style.opacity = "1";
         }, 100);
-      })
+      });
       container.appendChild(labelButton);
-      
+
       shade.addEventListener("click", () => {
         popup.style.opacity = "0";
         shade.style.opacity = "0";
-        setTimeout(()=> {
+        setTimeout(() => {
           popup.style.display = "none";
           shade.style.display = "none";
         }, 200);
-      })
-      
+      });
+
       const body = document.querySelector("body");
       root.appendChild(container);
       body.appendChild(shade);
       body.appendChild(popup);
       loadSynonymEventListener();
+
+      // set default value
+      select0.value = GM_getValue("addFirst", "true");
+      select0.addEventListener("change", () => {
+        GM_setValue("addFirst", select0.value);
+      });
+
+      select1.value = GM_getValue("addSAFE", "false");
+      select1.addEventListener("change", () =>
+        GM_setValue("addSAFE", select1.value)
+      );
+
+      const s2Value = GM_getValue("tagToQuery", "未分類");
+      if (s2Value === "未分類" || s2Value === "") select2.value = s2Value;
+      else select2.value = "custom";
+      select2.addEventListener("change", () => {
+        if (select2.value === "未分類" || select2.value === "")
+          GM_setValue("tagToQuery", select2.value);
+      });
+      if (s2Value !== "未分類" && s2Value !== "") input0.value = s2Value;
+      input0.addEventListener("change", () =>
+        GM_setValue("tagToQuery", input0.value)
+      );
+
+      select3.value = GM_getValue("retainComment", "false");
+      select3.addEventListener("change", () =>
+        GM_setValue("retainComment", select3.value)
+      );
+
+      select5.value = GM_getValue("retainTag", "false");
+      select5.addEventListener("change", () =>
+        GM_setValue("retainTag", select5.value)
+      );
+
+      select4.value = GM_getValue("publicationType", "show");
+      select4.addEventListener("change", () =>
+        GM_setValue("publicationType", select4.value)
+      );
+
+      // if synonymDict is loaded, expand
+      if (Object.keys(synonymDict).length) {
+        const content = document.querySelector("#synonym_content");
+        content.className = "p-3 border collapse show";
+      }
     }
   }, 1000);
 })();

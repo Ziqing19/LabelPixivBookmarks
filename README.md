@@ -10,7 +10,7 @@
 
 - If there is no match, the first tag of the image will be added (configurable now)
 
-- It is implemented by Pixiv Web APIs, and they would be outdated someday. Please start an issue at Github.
+- It is implemented by Pixiv Web APIs, and they would be outdated someday. Please start an issue at GitHub.
 
 ## Usage
 
@@ -74,9 +74,9 @@
 
 - Click the ***Update Preview*** to register this rule, and it will display at the preview zone below. Leave the alias blank and click update could remove the rule from the dictionary.
 
-- Don't forget to ***SAVE*** your dictionary to your local disk before leaving.
+- You might export the dictionary to your local disk for backup.
 
-- The next time using the script, you need to ***LOAD*** the dictionary file before start, or your synonym rules will not be applied.
+- The next time using the script, the dictionary will be loaded automatically.
 
 - ***Load Tag*** is for loading existed tag and its aliases from the dictionary. By entering the target tag and clicking ***Load Tag***, the aliases will be copied to the input zone. Of course, you can also do this manually.   
 
@@ -105,6 +105,9 @@
   
 - Could I edit the dictionary file myself?
   - Yes. The structure is quite simple, and use JSON to store the values. If you are not familiar to this file type, there are a lot of online editors that help your to modify the content.
+  
+![dictionary](./assets/08.JPG)
+![userTags](./assets/09.JPG)
 
 ## FAQ
 
@@ -195,8 +198,8 @@ Please report bugs or new features expected at [Github](https://github.com/Ziqin
 
 - 在这个版本中我提供了可以加载同义词词典的选项。第一次使用时可以略过***加载词典文件***的选项。目标标签，指的是您希望保存在您收藏夹中的用户标签的名字。同义词则是那些您希望脚本将其识别为目标标签的作品本身提供的标签
 - 点击***更新标签***将输入的内容加载到词典中，然后将会在下方的预览区域展示出来。如果您在同义词一栏空白的情况下更新，将会把目标标签从词典中删除
-- 在制作完词典后，请一定记得***保存***您的词典到本地
-- 下次使用时，您需要从本地***加载***上次使用过的词典，否则设定的同义词规则不会被应用到这次的分类中
+- 在制作完词典后，可以导出词典到本地进行备份
+- 下次使用时，会自动记忆上次使用的词典，也可以从本地导入新的词典
 - ***加载标签***按钮用于从词典中载入标签对应的同义词，在***目标标签***一栏中输入标签名，点击***加载标签***即可。当然也可以手动复制粘贴
   
 ![step5](./assets/05.JPG)
@@ -214,14 +217,16 @@ Please report bugs or new features expected at [Github](https://github.com/Ziqin
 - 除此以外的一些问题：
 
 - 是否能够自动载入/储存同义词词典
-  - 据我所知，对本地文件的后台读写是被浏览器禁止的行为。因为这会导致电脑容易受到木马和病毒的攻击
-  - 除此以外使用服务器储存，在使用时从服务器取回词典数据也是一种手段。但这个脚本比较简单，我手上目前也没有可以用作私人用途的服务器，可能之后会提供上传到服务器的选项
+  - 使用油猴脚本自带的本地存储功能已解决
   
 - 电脑提示下载的词典文件有安全问题
   - 词典文件由浏览器生成，可能缺少一些我不太清楚的安全签名之类。因为是开源脚本，如果不放心可以检查一遍。如果能帮我解决掉这个问题更好了（
 
 - 我自己能编辑这个文件吗？
   - 词典用JSON格式储存，结构非常简单。如果不熟悉JSON格式，网上有很多在线编辑器可以使用，脚本只提供了最基本的增删改的功能
+
+![dictionary](./assets/08.JPG)
+![userTags](./assets/09.JPG)
 
 ## 常见问题
 
@@ -234,7 +239,7 @@ Please report bugs or new features expected at [Github](https://github.com/Ziqin
 - 无法正常运行，弹窗提示错误
   - 请记录下弹窗提示内容，并在Github提交issue，通常具体问题需要具体分析
 
-- 旧版UI会导致部分字体变大
+- 旧版UI会导致部分字体变大（目前旧UI应该全面退役了）
   - 旧版UI在作品标题使用了h1标签（非常离谱），而本脚本使用bootstrap进行排版，导致样式冲突
   - 目前只对已经加载的部分恢复了字体大小，对于异步加载的推荐栏无法生效
 
