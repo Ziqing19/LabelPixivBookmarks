@@ -2,20 +2,25 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      2.2
+// @version      4.0
 // @description  自动为Pixiv收藏夹内图片打上已有的标签
 // @description:en    Automatically add existing labels for images in the bookmarks
-// @author       Ziqing19
-// @match        https://www.pixiv.net/*users/*/bookmarks/artworks*
-// @match        https://www.pixiv.net/bookmark.php*
+// @author       philimao
+// @match        https://www.pixiv.net/*users/*
 // @icon         https://www.google.com/s2/favicons?domain=pixiv.net
+// @resource     bootstrapIcon https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.0/font/bootstrap-icons.css
 // @resource     bootstrapCSS https://cdn.jsdelivr.net/npm/bootstrap@5.0.1/dist/css/bootstrap.min.css
 // @resource     bootstrapJS https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js
 // @grant        unsafeWindow
 // @grant        GM_getResourceURL
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_addStyle
+// @license      MIT
+
 // ==/UserScript==
+
+let uid, userTags;
 
 function cssElement(url) {
   const link = document.createElement("link");
@@ -35,6 +40,21 @@ function jsElement(url) {
 }
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
+
+function sortByParody(array) {
+  const sortFunc = (a, b) => {
+    let reg = /^[a-zA-Z0-9]/;
+    if (reg.test(a) && !reg.test(b)) return -1;
+    else if (!reg.test(a) && reg.test(b)) return 1;
+    else return a.localeCompare(b, "zh");
+  };
+  const withParody = array.filter((key) => key.includes("("));
+  const withoutParody = array.filter((key) => !key.includes("("));
+  withoutParody.sort(sortFunc);
+  withParody.sort(sortFunc);
+  withParody.sort((a, b) => sortFunc(a.split("(")[1], b.split("(")[1]));
+  return withoutParody.concat(withParody);
+}
 
 async function handleUpdate(
   token,
@@ -82,9 +102,9 @@ async function handleUpdate(
     body: [
       `mode=${mode}`,
       `illust_id=${illust_id}`,
-      `restrict=${!!restricted ? 1 : 0}`,
-      "comment" + (!!comment ? `=${comment}` : ""),
-      "tags" + (!!newTags ? `=${newTags}` : ""),
+      `restrict=${restricted ? 1 : 0}`,
+      "comment" + (comment ? `=${comment}` : ""),
+      "tags" + (newTags ? `=${newTags}` : ""),
       `tt=${token}`,
     ].join("&"),
   });
@@ -137,43 +157,10 @@ async function handleStart(
   const token = userRes.slice(tokenPos, tokenEnd).split('"')[1];
   console.log("token:", token);
 
-  // get user uid
-  const uidPos = userRes.indexOf("pixiv.user.id");
-  const uidEnd = userRes.indexOf(";", uidPos);
-  const uid = userRes.slice(uidPos, uidEnd).split('"')[1];
-  console.log("uid:", uid);
-
   if (!token) {
     console.log(`获取token失败
     Fail to fetch token`);
   }
-  if (!uid) {
-    console.log(`获取uid失败
-    Fail to fetch uid`);
-  }
-
-  // get user tags
-  const tagsRaw = await fetch(
-    "https://www.pixiv.net/ajax/user/" + uid + "/illusts/bookmark/tags"
-  );
-  const tagsObj = await tagsRaw.json();
-  if (!tagsRaw.ok || tagsObj.error === true) {
-    return alert(
-      `获取tags失败
-    Fail to fetch user tags` +
-        "\n" +
-        decodeURI(tagsObj.message)
-    );
-  }
-  const userTagsSet = new Set();
-  for (let obj of tagsObj.body.public) {
-    userTagsSet.add(decodeURI(obj.tag));
-  }
-  for (let obj of tagsObj.body.private) {
-    userTagsSet.add(decodeURI(obj.tag));
-  }
-  const userTags = Array.from(userTagsSet);
-  console.log("userTags:", userTags);
 
   // fetch bookmarks
   let total,
@@ -194,26 +181,12 @@ async function handleStart(
   }, 1000);
   do {
     const realOffset = tagToQuery === "未分類" ? offset : index;
-    const bookmarksRaw = await fetch(
-      "https://www.pixiv.net/ajax/user/" +
-        uid +
-        "/illusts/bookmarks?tag=" +
-        tagToQuery +
-        "&offset=" +
-        realOffset +
-        "&limit=100&rest=" +
-        publicationType
+    const bookmarks = await fetchBookmarks(
+      uid,
+      tagToQuery,
+      realOffset,
+      publicationType
     );
-    const bookmarksRes = await bookmarksRaw.json();
-    if (!bookmarksRaw.ok || bookmarksRes.error === true) {
-      return alert(
-        `获取用户收藏夹列表失败
-    Fail to fetch user bookmarks` +
-          "\n" +
-          decodeURI(bookmarksRes.message)
-      );
-    }
-    const bookmarks = bookmarksRes.body;
     console.log(bookmarks);
     if (!total) {
       total = bookmarks.total;
@@ -291,8 +264,6 @@ async function handleStart(
       else {
         offset++;
       }
-      // in case that runs too fast
-      delay(500).catch(console.log);
       index++;
       if (!window.runFlag) {
         promptBottom.innerText = `检测到停止信号，程序已停止运行
@@ -316,8 +287,210 @@ async function handleStart(
   }
 }
 
+async function fetchBookmarks(uid, tagToQuery, offset, publicationType) {
+  const bookmarksRaw = await fetch(
+    "https://www.pixiv.net/ajax/user/" +
+      uid +
+      "/illusts/bookmarks?tag=" +
+      tagToQuery +
+      "&offset=" +
+      offset +
+      "&limit=100&rest=" +
+      publicationType
+  );
+  await delay(500);
+  const bookmarksRes = await bookmarksRaw.json();
+  if (!bookmarksRaw.ok || bookmarksRes.error === true) {
+    return alert(
+      `获取用户收藏夹列表失败
+    Fail to fetch user bookmarks` +
+        "\n" +
+        decodeURI(bookmarksRes.message)
+    );
+  } else return bookmarksRes.body;
+}
+
+let searchBatch = 200,
+  searchString = "",
+  searchResults = [],
+  searchOffset = 0,
+  totalBookmarks = 0;
+async function handleSearch(evt) {
+  evt.preventDefault();
+
+  const searchString_ = document
+    .querySelector("#search_value")
+    .value.replace(/！/g, "!");
+
+  // initialize new search
+  const resultsDiv = document.querySelector("#search_results");
+  const noResult = document.querySelector("#no_result");
+  if (noResult) resultsDiv.removeChild(noResult);
+  if (searchString_ !== searchString) {
+    searchString = searchString_;
+    searchResults = [];
+    searchOffset = 0;
+    totalBookmarks = 0;
+    searchBatch = 200;
+    document.querySelector("#search_prompt").innerText = "";
+    while (resultsDiv.firstChild) {
+      resultsDiv.removeChild(resultsDiv.firstChild);
+    }
+  } else {
+    searchBatch += 200;
+  }
+
+  if (searchOffset && searchOffset === totalBookmarks)
+    return alert(`
+    已经完成所选标签下所有收藏的搜索！
+    All Bookmarks Of Selected Tag Have Been Searched!
+    `);
+
+  document.querySelector("#spinner").style.display = "block";
+
+  bootstrap.Collapse.getInstance(
+    document.querySelector("#advanced_search")
+  ).hide();
+
+  let includeArray = searchString
+    .split(" ")
+    .filter((el) => el.length && !el.includes("!"));
+  let excludeArray = searchString
+    .split(" ")
+    .filter((el) => el.length && el.includes("!"))
+    .map((el) => el.slice(1));
+
+  const matchPattern = document.querySelector("#search_exact_match").value;
+  const tagToQuery = document.querySelector("#search_select_tag").value;
+  const publicationType = document.querySelector("#search_publication").value;
+
+  // TODO
+  console.log(
+    matchPattern,
+    tagToQuery,
+    publicationType,
+    includeArray,
+    excludeArray
+  );
+
+  const dict = GM_getValue("synonymDict", {});
+  let index = 0; // index for current search batch
+  do {
+    const bookmarks = await fetchBookmarks(
+      uid,
+      tagToQuery,
+      searchOffset,
+      publicationType
+    );
+    document.querySelector("#search_prompt").innerText = `
+    当前搜索进度 / Searched：${searchOffset} / ${totalBookmarks}
+  `;
+    console.log(bookmarks);
+    if (!totalBookmarks) {
+      totalBookmarks = bookmarks.total;
+    }
+    for (let work of bookmarks.works) {
+      console.log(searchOffset, work.title, work.id, work.tags);
+      index++;
+      searchOffset++;
+
+      if (work.title === "-----") continue;
+      const workTags = work.tags;
+
+      const ifInclude = (keyword) => {
+        // especially, R-18 tag is labelled in work
+        if (["R-18", "R18", "r18"].includes(keyword)) return work["xRestrict"];
+
+        // keywords from user input, alias from dict
+        // keyword: 新世纪福音战士
+        // alias: EVA eva
+        const el = Object.keys(dict)
+          .map((i) => [i.split("(")[0], i])
+          .find(
+            (el) =>
+              el[0] === keyword ||
+              (matchPattern === "fuzzy" && el[0].includes(keyword))
+          );
+        const keywordArray = el ? dict[el[1]].concat(keyword) : [keyword];
+        if (
+          keywordArray.some((kw) => workTags.includes(kw)) ||
+          keywordArray.some(
+            (
+              kw // remove work tag braces
+            ) => workTags.map((tag) => tag.split("(")[0]).includes(kw)
+          )
+        )
+          return true;
+        if (matchPattern === "exact") return false;
+        return keywordArray.some(
+          (kw) =>
+            workTags.some((tag) => tag.includes(kw)) ||
+            keywordArray.some(
+              (
+                kw // remove work tag braces
+              ) =>
+                workTags
+                  .map((tag) => tag.split("(")[0])
+                  .some((tag) => tag.includes(kw))
+            )
+        );
+      };
+
+      if (includeArray.every(ifInclude) && !excludeArray.some(ifInclude)) {
+        searchResults.push(work);
+        const container = document.createElement("div");
+        container.className = "col-4 col-lg-3 col-xl-2 p-1";
+        container.innerHTML = `
+        <div class="mb-1">
+         <a href=${"/artworks/" + work.id}>
+          <img src=${work.url} alt="square" class="rounded-3 img-fluid" />
+          </a>
+        </div>
+       <div class="mb-1">
+         <a href=${"/artworks/" + work.id}
+          style="font-weight: bold; color: rgba(0, 0, 0, 0.88);">
+          ${work.title}
+          </a>
+       </div>
+       <div class="mb-4">
+        <a href=${"/users" + work.userId}
+          style="rgba(0, 0, 0, 0.64)">
+          <img
+            src=${work.profileImageUrl} alt="profile" class="rounded-circle"
+            style="width: 24px; height: 24px; margin-right: 4px"
+          />
+          ${work.userName}
+        </a>
+       </div>
+      `;
+        resultsDiv.appendChild(container);
+      }
+    }
+  } while (searchOffset < totalBookmarks && index < searchBatch);
+  if (totalBookmarks === 0)
+    document.querySelector("#search_prompt").innerText = "无结果 / No Result";
+  else
+    document.querySelector("#search_prompt").innerText = `
+    当前搜索进度 / Searched：${searchOffset} / ${totalBookmarks}
+  `;
+  if (searchOffset < totalBookmarks)
+    document.querySelector("#search_more").style.display = "block";
+  else document.querySelector("#search_more").style.display = "none";
+  if (!searchResults.length) {
+    resultsDiv.innerHTML = `
+      <div class="text-center text-black-50 fw-bold py-4" style="white-space: pre-wrap; font-size: 2rem" id="no_result">
+暂无结果
+No Result
+      </div>
+    `;
+  }
+  document.querySelector("#spinner").style.display = "none";
+  console.log(searchResults);
+}
+
 (function () {
   "use strict";
+  document.head.appendChild(cssElement(GM_getResourceURL("bootstrapIcon")));
   document.head.appendChild(cssElement(GM_getResourceURL("bootstrapCSS")));
   document.head.appendChild(jsElement(GM_getResourceURL("bootstrapJS")));
   if (window.location.href.includes("https://www.pixiv.net/bookmark.php")) {
@@ -338,25 +511,101 @@ async function handleStart(
   shade.style.opacity = "0";
   shade.style.transition = "opacity 0.2s ease 0s";
 
-  const popup = document.createElement("div");
-  popup.style.width = "47rem";
-  popup.style.position = "fixed";
-  popup.style.left = "calc(50vw - 24rem)";
+  const popupLabel = document.createElement("div");
+  popupLabel.style.width = "47rem";
+  popupLabel.style.position = "fixed";
+  popupLabel.style.left = "calc(50vw - 24rem)";
   if (window.matchMedia("(min-height: 60rem)").matches) {
-    popup.style.minHeight = "50rem";
-    popup.style.maxHeight = "90vh";
-    popup.style.top = "5vh";
+    popupLabel.style.minHeight = "50rem";
+    popupLabel.style.maxHeight = "90vh";
+    popupLabel.style.top = "5vh";
   } else {
-    popup.style.maxHeight = "calc(100vh - 2rem)";
-    popup.style.top = "1rem";
+    popupLabel.style.maxHeight = "calc(100vh - 2rem)";
+    popupLabel.style.top = "1rem";
   }
-  popup.style.overflowX = "hidden";
-  popup.style.background = "rgb(245,245,245)";
-  popup.style.display = "none";
-  popup.style.opacity = "0";
-  popup.className = "py-3 px-4 rounded border border-secondary flex-column";
-  popup.id = "popup";
-  popup.style.transition = "opacity 0.2s ease 0s";
+  popupLabel.style.overflowX = "hidden";
+  popupLabel.style.background = "rgb(245,245,245)";
+  popupLabel.style.display = "none";
+  popupLabel.style.opacity = "0";
+  popupLabel.className =
+    "py-3 px-4 rounded border border-secondary flex-column";
+  popupLabel.id = "popup";
+  popupLabel.style.transition = "opacity 0.2s ease 0s";
+
+  const popupSearch = document.createElement("div");
+  popupSearch.className = "modal fade";
+  popupSearch.id = "search_modal";
+  popupSearch.tabIndex = -1;
+  popupSearch.innerHTML = `
+    <div class="modal-dialog modal-xl d-flex flex-column bg-white" style="pointer-events: initial">
+      <div class="modal-header">
+        <h5 class="modal-title">搜索图片标签 / Search Bookmarks</h5>
+        <button class="btn btn-close" data-bs-dismiss="modal" />
+      </div>
+      <form class="modal-body flex-grow-1 d-flex flex-column p-4" id="search_form">
+          <div class="mb-4">
+            <div class="mb-3">
+              <label class="form-label" for="search_value">
+                输入要搜索的关键字，使用空格分隔，在关键字前加<strong>感叹号</strong>来排除该关键字。将会结合用户设置的同义词词典，
+                在收藏的图片中寻找标签匹配的图片展示在下方。当收藏时间跨度较大时，使用自定义标签缩小范围以加速搜索。
+                <br />
+                Enter keywords seperated by spaces to launch a search. Add a <strong>Question Mark</strong>
+                before any keyword to exclude it. The search process will use your synonym dictionary to look up the tags
+                of your bookmarked images. Use custom tag to narrow the search if images come from a wide time range.
+              </label>
+              <input type="text" class="form-control" id="search_value" required/>
+            </div>
+            <div class="mb-3" data-bs-toggle="collapse" data-bs-target="#advanced_search"
+              type="button" id="advanced_search_controller">&#9658; 高级设置 / Advanced</div>
+            <div class="mb-3 ps-3 collapse" id="advanced_search">
+              <div class="mb-2">
+                <label class="form-label fw-light">标签匹配模式 / Match Pattern</label>
+                <select class="form-select" id="search_exact_match">
+                  <option value="fuzzy">模糊匹配 / Fuzzy Match</option>
+                  <option value="exact">精确匹配 / Exact Match</option>
+                </select>
+              </div>
+              <div class="mb-2">
+                <label class="form-label fw-light">自定义标签用于缩小搜索范围 / Custom Tag to Narrow the Search</label>
+                <select class="form-select select-custom-tags" id="search_select_tag">
+                  <option value="">所有收藏 / All Works</option>
+                </select>
+              </div>
+              <div class="mb-2">
+                <label class="form-label fw-light">作品公开类型 / Publication Type</label>
+                <select class="form-select" id="search_publication">
+                  <option value="show">公开收藏 / Public</option>
+                  <option value="hide">私密收藏 / Private</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="flex-grow-1">
+            <div class="position-absolute start-50 top-50 spinner-border text-secondary" style="display: none" id="spinner">
+            </div>
+            <div class="row" id="search_results"/>
+            </div>
+            <div class="mb-2 text-end" id="search_prompt">
+            </div>
+            <button class="btn btn-outline-primary w-100 py-1" style="display: none;" id="search_more">继续搜索 / Search More</button>
+          </div>
+      </form>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭 / Close</button>
+        <button type="button" class="btn btn-outline-primary ms-auto" style="white-space: nowrap"
+          id="footer_search_button">搜索 / Search</button>
+      </div>
+    </div>
+  `;
+
+  shade.addEventListener("click", () => {
+    popupLabel.style.opacity = "0";
+    shade.style.opacity = "0";
+    setTimeout(() => {
+      popupLabel.style.display = "none";
+      shade.style.display = "none";
+    }, 200);
+  });
 
   const inner = document.createElement("div");
   inner.style.width = "48rem";
@@ -369,10 +618,10 @@ async function handleStart(
   const close = document.createElement("button");
   close.className = "btn btn-close";
   close.addEventListener("click", () => {
-    popup.style.opacity = "0";
+    popupLabel.style.opacity = "0";
     shade.style.opacity = "0";
     setTimeout(() => {
-      popup.style.display = "none";
+      popupLabel.style.display = "none";
       shade.style.display = "none";
     }, 200);
   });
@@ -647,18 +896,8 @@ async function handleStart(
     });
     // sort
     document.querySelector("#sort_synonym").addEventListener("click", () => {
-      const keys = Object.keys(synonymDict);
-      const keysWithParody = keys.filter((key) => key.includes("("));
-      const keysWithoutParody = keys.filter((key) => !key.includes("("));
-      const sortFunc = (a, b) => a.localeCompare(b, "zh-CN");
-      keysWithoutParody.sort(sortFunc);
-      keysWithParody.sort(sortFunc);
-      keysWithParody.sort((a, b) => sortFunc(a.split("(")[1], b.split("(")[1]));
       const newDict = {};
-      for (let key of keysWithoutParody) {
-        newDict[key] = synonymDict[key];
-      }
-      for (let key of keysWithParody) {
+      for (let key of sortByParody(Object.keys(synonymDict))) {
         newDict[key] = synonymDict[key];
       }
       synonymDict = newDict;
@@ -736,7 +975,7 @@ async function handleStart(
   closeButton.innerText = "Close";
   closeButton.className = "btn btn-secondary me-auto";
   closeButton.addEventListener("click", () => {
-    popup.style.display = "none";
+    popupLabel.style.display = "none";
     shade.style.display = "none";
   });
   const stopButton = document.createElement("button");
@@ -784,7 +1023,7 @@ async function handleStart(
   inner.appendChild(progress);
   inner.appendChild(promptBottom);
   inner.appendChild(buttonDiv);
-  popup.appendChild(inner);
+  popupLabel.appendChild(inner);
 
   // button to start labeling
   let root;
@@ -812,66 +1051,22 @@ async function handleStart(
       clearInterval(intervalId);
       root.classList.add("d-flex");
       const container = document.createElement("span");
-      container.className = "flex-grow-1 d-flex justify-content-end";
-      const labelButton = document.createElement("button");
-      if (unsafeWindow.dataLayer[0].lang.includes("zh")) {
-        labelButton.innerText = "自动添加标签";
-      } else {
-        labelButton.innerText = "Label Bookmarks";
-      }
-
-      labelButton.style.paddingRight = "24px";
-      labelButton.style.paddingLeft = "24px";
-      labelButton.style.background = "transparent";
-      if (window.location.href.includes("https://www.pixiv.net/bookmark.php")) {
-        labelButton.style.border = "none";
-        labelButton.style.color = "#258fb8";
-      } else {
-        labelButton.className = "fw-bold";
-        labelButton.style.fontSize = "16px";
-        labelButton.style.borderTop = "4px solid rgba(0, 150, 250, 0)";
-        labelButton.style.borderLeft = "none";
-        labelButton.style.borderRight = "none";
-        labelButton.style.borderBottom = "none";
-        labelButton.style.color = "rgba(0, 0, 0, 0.32)";
-        labelButton.style.lineHeight = "24px";
-        labelButton.style.background = "transparent";
-        labelButton.style.transition =
-          "color 0.4s ease 0s, border 0.4s ease 0s";
-        labelButton.addEventListener("mouseenter", () => {
-          labelButton.style.borderTop = "4px solid rgb(0, 150, 250)";
-          labelButton.style.color = "rgba(0, 0, 0, 0.88)";
-        });
-        labelButton.addEventListener("mouseleave", () => {
-          labelButton.style.borderTop = "4px solid rgba(0, 150, 250, 0)";
-          labelButton.style.color = "rgba(0, 0, 0, 0.32)";
-        });
-      }
-
-      labelButton.addEventListener("click", () => {
-        popup.style.display = "flex";
-        shade.style.display = "flex";
-        setTimeout(() => {
-          popup.style.opacity = "1";
-          shade.style.opacity = "1";
-        }, 100);
-      });
-      container.appendChild(labelButton);
-
-      shade.addEventListener("click", () => {
-        popup.style.opacity = "0";
-        shade.style.opacity = "0";
-        setTimeout(() => {
-          popup.style.display = "none";
-          shade.style.display = "none";
-        }, 200);
-      });
+      container.className = "flex-grow-1 justify-content-end";
+      container.style.display = "none";
+      container.id = "label_bookmarks_buttons";
+      container.innerHTML = `
+        <button class="label-button" id="add_label"/>
+        <button class="label-button" data-bs-toggle="modal" data-bs-target="#search_modal" id="search_label"/>
+      `;
 
       const body = document.querySelector("body");
       root.appendChild(container);
       body.appendChild(shade);
-      body.appendChild(popup);
+      body.appendChild(popupLabel);
+      body.appendChild(popupSearch);
+
       loadSynonymEventListener();
+      setButtonProperties().catch(console.log);
 
       // set default value
       select0.value = GM_getValue("addFirst", "true");
@@ -918,4 +1113,126 @@ async function handleStart(
       }
     }
   }, 1000);
+
+  async function setButtonProperties() {
+    // label buttons
+    const labelButton = document.querySelector("#add_label");
+    const searchButton = document.querySelector("#search_label");
+    if (unsafeWindow.dataLayer[0].lang.includes("zh")) {
+      labelButton.innerText = "添加标签";
+      searchButton.innerText = "搜索图片";
+    } else {
+      labelButton.innerText = "Label";
+      searchButton.innerText = "Search";
+    }
+    GM_addStyle(
+      `.label-button {
+            padding: 0 24px;
+            background: transparent;
+          }`
+    );
+    if (window.location.href.includes("https://www.pixiv.net/bookmark.php")) {
+      GM_addStyle(
+        `.label-button {
+              border: none;
+              color: #258fb8;
+          }`
+      );
+    } else {
+      GM_addStyle(
+        `.label-button {
+             font-size: 16px;
+             font-weight: 700;
+             border-top: 4px solid rgba(0, 150, 250, 0);
+             border-bottom: none;
+             border-left: none;
+             border-right: none;
+             color: rgba(0, 0, 0, 0.32);
+             line-height: 24px;
+             background: transparent;
+             transition: color 0.4s ease 0s, border 0.4s ease 0s;
+           }
+         .label-button:hover {
+           border-top: 4px solid rgb(0, 150, 250);
+           color: rgba(0, 0, 0, 0.88);
+         }`
+      );
+    }
+    labelButton.addEventListener("click", () => {
+      popupLabel.style.display = "flex";
+      shade.style.display = "flex";
+      setTimeout(() => {
+        popupLabel.style.opacity = "1";
+        shade.style.opacity = "1";
+      }, 100);
+    });
+
+    // search bookmark form
+    const searchForm = document.querySelector("#search_form");
+    searchForm.onsubmit = handleSearch;
+    const searchMore = document.querySelector("#search_more");
+    const footerSearch = document.querySelector("#footer_search_button");
+    footerSearch.onclick = () => searchMore.click();
+
+    //
+    uid = unsafeWindow.dataLayer[0]["user_id"];
+    const tagsRaw = await fetch(
+      "https://www.pixiv.net/ajax/user/" + uid + "/illusts/bookmark/tags"
+    );
+    const tagsObj = await tagsRaw.json();
+    if (tagsObj.error === true)
+      return alert(
+        `获取tags失败
+    Fail to fetch user tags` +
+          "\n" +
+          decodeURI(tagsObj.message)
+      );
+    const userTagsSet = new Set();
+    for (let obj of tagsObj.body.public) {
+      userTagsSet.add(decodeURI(obj.tag));
+    }
+    for (let obj of tagsObj.body.private) {
+      userTagsSet.add(decodeURI(obj.tag));
+    }
+    userTagsSet.delete("未分類");
+
+    userTags = sortByParody(Array.from(userTagsSet));
+
+    console.log("uid:", uid, "userTags:", userTags);
+
+    // append user tags options
+    const customSelects = [...document.querySelectorAll(".select-custom-tags")];
+    customSelects.forEach((el) => {
+      userTags.forEach((tag) => {
+        const option = document.createElement("option");
+        option.value = tag;
+        option.innerText = tag;
+        el.appendChild(option);
+      });
+    });
+
+    let synonymDictKeys = Object.keys(GM_getValue("synonymDict", {}));
+    if (synonymDictKeys.length) {
+      const index = Math.floor(Math.random() * synonymDictKeys.length);
+      document
+        .querySelector("#search_value")
+        .setAttribute(
+          "placeholder",
+          "eg: " + synonymDictKeys[index].split("(")[0]
+        );
+    }
+
+    let counter = 0;
+    const id = setInterval(() => {
+      counter++;
+      const uidMatch = window.location.href.match(/\d+/);
+      if (uidMatch && uidMatch[0] === uid) {
+        document.querySelector("#label_bookmarks_buttons").style.display =
+          "flex";
+        clearInterval(id);
+      } else if (counter > 100) {
+        clearInterval(id);
+      }
+    }, 1000);
+  }
 })();

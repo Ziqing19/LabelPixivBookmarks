@@ -1,0 +1,32 @@
+.label-button {
+  padding: 0 24px;
+  background: transparent;
+}
+
+.label-button {
+  border: none;
+  color: #258fb8;
+}
+
+.label-button {
+  font-size: 16px;
+  font-weight: 700;
+  border-top: 4px solid rgba(0, 150, 250, 0);
+  border-bottom: none;
+  border-left: none;
+  border-right: none;
+  color: rgba(0, 0, 0, 0.32);
+  line-height: 24px;
+  background: transparent;
+  transition: color 0.4s ease 0s, border 0.4s ease 0s;
+}
+
+.label-button:hover {
+  border-top: 4px solid rgb(0, 150, 250);
+  color: rgba(0, 0, 0, 0.88);
+}
+
+#advanced_search {
+  max-height: 0;
+  transition: max-height 0.4s ease 0s;
+}
