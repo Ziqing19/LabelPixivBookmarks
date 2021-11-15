@@ -2,9 +2,9 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      4.0
-// @description  自动为Pixiv收藏夹内图片打上已有的标签
-// @description:en    Automatically add existing labels for images in the bookmarks
+// @version      4.3
+// @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
+// @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
 // @match        https://www.pixiv.net/*users/*
 // @icon         https://www.google.com/s2/favicons?domain=pixiv.net
@@ -19,7 +19,7 @@
 
 // ==/UserScript==
 
-let uid, token, userTags, synonymDict;
+let uid, token, lang, userTags, synonymDict, pageInfo, currentWorks, tag;
 
 Array.prototype.toUpperCase = function () {
   return this.map((i) => i.toUpperCase());
@@ -36,6 +36,94 @@ function isEqualObject(obj1, obj2) {
 
 function delay(ms) {
   return new Promise((res) => setTimeout(res, ms));
+}
+
+function getValue(name, defaultValue) {
+  return GM_getValue(name, defaultValue);
+}
+
+function setValue(name, value) {
+  if (name === "synonymDict" && (!value || !Object.keys(value).length)) return;
+  GM_setValue(name, value);
+  // backup
+  let valueArray = JSON.parse(window.localStorage.getItem(name));
+  if (!valueArray) valueArray = [];
+  // save the dict by date
+  if (name === "synonymDict") {
+    const date = new Date().toLocaleDateString();
+    // not update if of same value
+    if (valueArray.length) {
+      if (
+        !valueArray.find(
+          (el) => JSON.stringify(el.value) === JSON.stringify(value)
+        )
+      ) {
+        const lastElem = valueArray[valueArray.length - 1];
+        if (lastElem.date === date) {
+          // append only
+          for (let key of Object.keys(value)) {
+            if (lastElem.value[key]) {
+              // previous key
+              lastElem.value[key] = Array.from(
+                new Set(lastElem["value"][key].concat(value[key]))
+              );
+            } else {
+              // new key
+              lastElem.value[key] = value[key];
+            }
+          }
+          valueArray.pop();
+          valueArray.push(lastElem);
+        } else {
+          if (valueArray.length > 30) valueArray.shift();
+          valueArray.push({ date, value });
+        }
+        window.localStorage.setItem(name, JSON.stringify(valueArray));
+      } else {
+        // same value, pass
+      }
+    } else {
+      // empty array
+      valueArray.push({ date, value });
+      window.localStorage.setItem(name, JSON.stringify(valueArray));
+    }
+  } else {
+    if (valueArray.length > 30) valueArray.shift();
+    valueArray.push(value);
+    window.localStorage.setItem(name, JSON.stringify(valueArray));
+  }
+}
+
+function addStyle(style) {
+  GM_addStyle(style);
+}
+
+// merge all previous dict and return
+function restoreSynonymDict() {
+  const value = window.localStorage.getItem("synonymDict");
+  if (!value) return {};
+  const dictArray = JSON.parse(value);
+  const newDict = {};
+  for (let elem of dictArray) {
+    const dict = elem.value;
+    Object.keys(dict).forEach((key) => {
+      if (newDict[key])
+        newDict[key] = Array.from(new Set(newDict[key].concat(dict[key])));
+      else newDict[key] = dict[key];
+    });
+  }
+
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(
+    new Blob([JSON.stringify([newDict].concat(dictArray))], {
+      type: "application/json",
+    })
+  );
+  a.setAttribute(
+    "download",
+    `synonym_dict_restored_${new Date().toLocaleDateString()}.json`
+  );
+  a.click();
 }
 
 function sortByParody(array) {
@@ -73,16 +161,12 @@ function loadResources() {
   document.head.appendChild(jsElement(GM_getResourceURL("bootstrapJS")));
 }
 
+const bookmarkBatchSize = 100;
 async function fetchBookmarks(uid, tagToQuery, offset, publicationType) {
   const bookmarksRaw = await fetch(
-    "https://www.pixiv.net/ajax/user/" +
-      uid +
-      "/illusts/bookmarks?tag=" +
-      tagToQuery +
-      "&offset=" +
-      offset +
-      "&limit=100&rest=" +
-      publicationType
+    `https://www.pixiv.net/ajax/user/${uid}` +
+      `/illusts/bookmarks?tag=${tagToQuery}` +
+      `&offset=${offset}&limit=${bookmarkBatchSize}&rest=${publicationType}`
   );
   await delay(500);
   const bookmarksRes = await bookmarksRaw.json();
@@ -107,7 +191,6 @@ async function updateBookmarkTags(bookmarkIds, tags, removeTags) {
     });
     await delay(500);
   }
-
   if (removeTags && removeTags.length) {
     await fetch("https://www.pixiv.net/ajax/illusts/bookmarks/remove_tags", {
       headers: {
@@ -122,35 +205,134 @@ async function updateBookmarkTags(bookmarkIds, tags, removeTags) {
   }
 }
 
-async function removeBookmarkTags(evt) {
+async function clearBookmarkTags(evt) {
   evt.preventDefault();
+  const selected = [
+    ...document.querySelectorAll("label>div[aria-disabled='true']"),
+  ];
   if (
+    !selected.length ||
     !window.confirm(
-      `确定要删除所选作品的标签吗？（不会解除收藏）
+      `确定要删除所选作品的标签吗？（作品的收藏状态不会改变）
 The tags of work(s) you've selected will be removed (become uncategorized). Is this okay?`
     )
   )
     return;
-  const pids = [
-    ...document.querySelectorAll(".cnmYO[aria-disabled='true']"),
-  ].map((el) => el.querySelector("span").getAttribute("data-gtm-value"));
 
-  for (let pid of pids) {
-    console.log("Removing", pid);
-    await fetch(`https://www.pixiv.net/bookmark_add.php?id=${pid}`, {
-      headers: {
-        "content-type": "application/x-www-form-urlencoded",
-        Referer: `https://www.pixiv.net/bookmark_add.php?type=illust&illust_id=${pid}`,
-        "Referrer-Policy": "strict-origin-when-cross-origin",
-      },
-      body: `mode=add&tt=${token}&id=${pid}&type=illust&comment=&tag=&restrict=0`,
-      method: "POST",
-    });
-    await delay(500);
-    // todo use remove_tag api to avoid 302
+  window.runFlag = true;
+  const works = selected.map((el) => {
+    const middleChild = Object.values(
+      el.parentNode.parentNode.parentNode.parentNode
+    )[0]["child"];
+
+    const work = middleChild["memoizedProps"]["work"];
+    const bookmarkId = middleChild["memoizedProps"]["bookmarkId"];
+    work.associatedTags =
+      middleChild["child"]["memoizedProps"]["associatedTags"];
+    work.bookmarkId = bookmarkId;
+    return work;
+  });
+
+  const modal = document.querySelector("#clear_tags_modal");
+  let instance = bootstrap.Modal.getInstance(modal);
+  if (!instance) instance = new bootstrap.Modal(modal);
+  instance.show();
+
+  const prompt = document.querySelector("#clear_tags_prompt");
+  const progressBar = document.querySelector("#clear_tags_progress_bar");
+
+  const total = works.length;
+  for (let index = 1; index <= total; index++) {
+    const work = works[index - 1];
+    const url = "https://www.pixiv.net/en/artworks/" + work.id;
+    console.log(index, work.title, work.id, url);
+    if (DEBUG) console.log(work);
+
+    progressBar.innerText = index + "/" + total;
+    const ratio = ((index / total) * 100).toFixed(2);
+    progressBar.style.width = ratio + "%";
+
+    prompt.innerText = work.alt + "\n" + work.associatedTags.join(" ");
+    await updateBookmarkTags([work.bookmarkId], undefined, work.associatedTags);
+
+    if (!window.runFlag) {
+      prompt.innerText =
+        "检测到停止信号，程序已停止运行\nStop signal detected. Program exits.";
+      progressBar.style.width = "100%";
+      break;
+    }
   }
-  window.alert(`标签删除完成！
-Tags Removed!`);
+  if (window.runFlag)
+    prompt.innerText = `标签删除完成！
+Tags Removed!`;
+  setTimeout(() => {
+    instance.hide();
+    if (window.runFlag) window.location.reload();
+  }, 1000);
+}
+
+async function removeCurrentTag(evt) {
+  evt.preventDefault();
+  if (
+    !tag ||
+    tag === "未分類" ||
+    !window.confirm(`确定要删除所选的标签 ${tag} 吗？（作品的收藏状态不会改变）
+The tag ${tag} will be removed and works of ${tag} will keep bookmarked. Is this okay?`)
+  )
+    return;
+
+  window.runFlag = true;
+  const modal = document.querySelector("#clear_tags_modal");
+  let instance = bootstrap.Modal.getInstance(modal);
+  if (!instance) instance = new bootstrap.Modal(modal);
+  instance.show();
+
+  const prompt = document.querySelector("#clear_tags_prompt");
+  const progressBar = document.querySelector("#clear_tags_progress_bar");
+
+  let total = 9999,
+    offset = 0,
+    totalBookmarks = [],
+    bookmarks = { works: [] };
+  do {
+    bookmarks = await fetchBookmarks(uid, tag, offset, "show");
+    total = bookmarks["total"];
+    offset += bookmarkBatchSize;
+    offset = Math.min(offset, total);
+
+    progressBar.innerText = offset + "/" + total;
+    const ratio = ((offset / total) * 90).toFixed(2);
+    progressBar.style.width = ratio + "%";
+
+    totalBookmarks = totalBookmarks.concat(bookmarks["works"]);
+
+    if (!window.runFlag) {
+      prompt.innerText =
+        "检测到停止信号，程序已停止运行\nStop signal detected. Program exits.";
+      progressBar.style.width = "100%";
+      break;
+    }
+  } while (offset < total);
+
+  console.log(totalBookmarks);
+  if (window.runFlag) {
+    progressBar.style.width = 90 + "%";
+    prompt.innerText = `标签${tag}删除中...
+Removing Tag ${tag}
+`;
+
+    const ids = totalBookmarks.map((work) => work["bookmarkData"]["id"]);
+    if (ids.length) await updateBookmarkTags(ids, undefined, [tag]);
+
+    progressBar.style.width = 100 + "%";
+    prompt.innerText = `标签${tag}删除完成！
+Tag ${tag} Removed!`;
+  }
+  setTimeout(() => {
+    instance.hide();
+    if (window.runFlag)
+      window.location.href = `https://www.pixiv.net/users/${uid}/bookmarks/artworks`;
+  }, 1000);
 }
 
 const DEBUG = false;
@@ -184,6 +366,7 @@ async function handleLabel(evt) {
     offset = 0; // as uncategorized ones will decrease, offset means num of images "successfully" updated
   // update progress bar
   const progressBar = document.querySelector("#progress_bar");
+  progressBar.style.width = "0";
   const intervalId = setInterval(() => {
     if (total) {
       progressBar.innerText = index + "/" + total;
@@ -290,11 +473,12 @@ async function handleLabel(evt) {
     promptBottom.innerText = `指定分类下暂无符合要求的作品，请关闭窗口
   Works needed to be labeled not found. Please close the window.
   `;
-  } else {
+  } else if (window.runFlag) {
     promptBottom.innerText = `自动添加标签已完成，请关闭窗口并刷新网页
   Auto labeling finished successfully. Please close the window and refresh.
   `;
   }
+  window.runFlag = false;
 }
 
 let prevSearch, searchBatch, searchResults, searchOffset, totalBookmarks;
@@ -437,24 +621,25 @@ async function handleSearch(evt) {
         container.className = "col-4 col-lg-3 col-xl-2 p-1";
         container.innerHTML = `
         <div class="mb-1">
-         <a href=${"/artworks/" + work.id}>
+         <a href=${"/artworks/" + work.id} target="_blank" rel="noreferrer">
           <img src=${work.url} alt="square" class="rounded-3 img-fluid" />
           </a>
         </div>
        <div class="mb-1">
          <a href=${"/artworks/" + work.id}
+          target="_blank" rel="noreferrer"
           style="font-weight: bold; color: rgba(0, 0, 0, 0.88);">
           ${work.title}
           </a>
        </div>
        <div class="mb-4">
-        <a href=${"/users" + work.userId}
+        <a href=${"/users" + work["userId"]}  target="_blank" rel="noreferrer"
           style="rgba(0, 0, 0, 0.64)">
           <img
-            src=${work.profileImageUrl} alt="profile" class="rounded-circle"
+            src=${work["profileImageUrl"]} alt="profile" class="rounded-circle"
             style="width: 24px; height: 24px; margin-right: 4px"
           />
-          ${work.userName}
+          ${work["userName"]}
         </a>
        </div>
       `;
@@ -507,39 +692,52 @@ function createModalElements() {
           </div>
         </div>
         <div class="mb-4">
-          <div role="button" class="mb-3" data-bs-toggle="collapse" data-bs-target="#synonym_content">
+          <button type="button" class="mb-3 btn p-0" data-bs-toggle="collapse" data-bs-target="#synonym_content">
             &#9658; 同义词词典 / Synonym Dict
-          </div>
+          </button>
           <div class="collapse show px-3" id="synonym_content">
             <div class="mb-4">
-              <div role="button" class="mb-3 fw-light" data-bs-toggle="collapse"
-                data-bs-target="#load_synonym_dict">&#9658; 加载词典 / Load Dict</div>
+              <button type="button" class="mb-3 btn p-0 fw-light" data-bs-toggle="collapse"
+                data-bs-target="#load_synonym_dict">&#9658; 加载词典 / Load Dict</button>
               <div class="mb-3 collapse" id="load_synonym_dict">
                 <input class="form-control border mb-3" type="file" accept="application/json" id="synonym_dict_input"/>
-              </div>
-            </div>
-            <div class="mb-4">
-              <div role="button" class="mb-3 fw-light" data-bs-toggle="collapse"
-                data-bs-target="#edit_synonym_dict">&#9658; 编辑词典 / Edit Dict</div>
-              <div class="mb-3 collapse" id="edit_synonym_dict">
-                <label class="form-label fw-light" for="target_tag">目标标签（用户标签） / Target Tag (User Tag)</label>
-                <input class="form-control mb-3" type="text" id="target_tag" placeholder="eg: 新世紀エヴァンゲリオン">
-                <label class="form-label fw-light" for="tag_alias">同义词（作品标签，空格分割） / Alias (From Artwork, Space Delimited)</label>
-                <input class="form-control mb-3" type="text" id="tag_alias" placeholder="eg: エヴァンゲリオン evangelion Evangelion eva EVA">
-                <div class="d-flex mb-3" id="synonym_buttons">
-                  <button role="button" class="btn btn-outline-primary me-auto" title="保存至本地\nSave to Local Disk">导出词典 / Export Dict</button>
-                  <button role="button" class="btn btn-outline-primary me-3" title="加载已有标签的同义词\nLoad Alias of Existing User Tag">加载标签 / Load Tag</button>
-                  <button role="button" class="btn btn-outline-primary" title="保存结果至词典，同义词为空时将删除该项\nUpdate dict. User tag will be removed if alias is empty">更新标签 / Update Tag</button>
+                <div class="mb-3 d-flex">
+                  <div class="fw-light me-auto">
+                    如果词典意外丢失，请点击右侧按钮获取历史版本的词典用于恢复，并上报该BUG
+                    <br />
+                    If the dictionary accidentally got lost, click the right button to download the history version for restoring, as well as reporting the bug ASAP.
+                  </div>
+                  <button type="button" class="btn btn-outline-primary ms-3" id="label_restore_dict">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-counterclockwise" viewBox="0 0 16 16">
+                      <path fill-rule="evenodd" d="M8 3a5 5 0 1 1-4.546 2.914.5.5 0 0 0-.908-.417A6 6 0 1 0 8 2v1z"/>
+                      <path d="M8 4.466V.534a.25.25 0 0 0-.41-.192L5.23 2.308a.25.25 0 0 0 0 .384l2.36 1.966A.25.25 0 0 0 8 4.466z"/>
+                    </svg>
+                  </button>
                 </div>
               </div>
             </div>
             <div class="mb-4">
-              <div role="button" class="mb-3 fw-light" data-bs-toggle="collapse"
-                data-bs-target="#preview_synonym_dict">&#9658; 预览词典 / Preview Dict</div>
+              <button type="button" class="mb-3 btn p-0 fw-light" data-bs-toggle="collapse"
+                data-bs-target="#edit_synonym_dict">&#9658; 编辑词典 / Edit Dict</button>
+              <div class="mb-3 collapse" id="edit_synonym_dict">
+                <label class="form-label fw-light" for="target_tag">目标标签（用户标签） / Target Tag (User Tag)</label>
+                <input class="form-control mb-3" type="text" id="target_tag" placeholder="eg: 新世紀エヴァンゲリオン">
+                <label class="form-label fw-light" for="tag_alias">同义词（作品标签，空格分割，不区分大小写） / Alias (From Artwork, Space Delimited, Case-Insensitive)</label>
+                <input class="form-control mb-3" type="text" id="tag_alias" placeholder="eg: エヴァンゲリオン evangelion eva">
+                <div class="d-flex mb-3" id="synonym_buttons">
+                  <button type="button" class="btn btn-outline-primary me-auto" title="保存至本地\nSave to Local Disk">导出词典 / Export Dict</button>
+                  <button type="button" class="btn btn-outline-primary me-3" title="加载已有标签的同义词\nLoad Alias of Existing User Tag">加载标签 / Load Tag</button>
+                  <button type="button" class="btn btn-outline-primary" title="保存结果至词典，同义词为空时将删除该项\nUpdate dict. User tag will be removed if alias is empty">更新标签 / Update Tag</button>
+                </div>
+              </div>
+            </div>
+            <div class="mb-4">
+              <button type="button" class="mb-3 btn p-0 fw-light" data-bs-toggle="collapse"
+                data-bs-target="#preview_synonym_dict">&#9658; 预览词典 / Preview Dict</button>
               <div class="mb-3 collapse show" id="preview_synonym_dict">
                 <div class="mb-2 position-relative">
                   <input type="text" class="form-control mb-2" id="synonym_filter" placeholder="筛选 / Filter">
-                  <button role="button" class="position-absolute btn btn-close end-0 top-50 translate-middle" id="clear_synonym_filter"/>
+                  <button type="button" class="position-absolute btn btn-close end-0 top-50 translate-middle" id="clear_synonym_filter"/>
                 </div>
                 <div id="synonym_preview" class="border py-1 px-3" style="white-space: pre-wrap; min-height: 100px; max-height: 30vh; overflow-y: scroll"></div>
               </div>
@@ -547,9 +745,9 @@ function createModalElements() {
           </div>
         </div>
         <div class="mb-4">
-          <div role="button" class="mb-3" data-bs-toggle="collapse" data-bs-target="#label_tag_query">
+          <button type="button" class="btn p-0 mb-3" data-bs-toggle="collapse" data-bs-target="#label_tag_query">
             &#9658; 自动标签范围 / Auto Labeling For
-          </div>
+          </button>
           <select id="label_tag_query"
             class="form-select select-custom-tags px-3 collapse show">
             <option value="未分類">未分类作品 / Uncategorized Only</option>
@@ -557,7 +755,7 @@ function createModalElements() {
           </select>
         </div>
         <div class="mb-4">
-          <div role="button" class="mb-3" data-bs-toggle="collapse" data-bs-target="#advanced_label">&#9658; 高级设置 / Advanced</div>
+          <button type="button" class="btn p-0 mb-3" data-bs-toggle="collapse" data-bs-target="#advanced_label">&#9658; 高级设置 / Advanced</button>
           <div class="px-3 mb-4 collapse" id="advanced_label">
             <div class="mb-3">
               <label class="form-label fw-light" for="label_add_first">
@@ -613,7 +811,9 @@ function createModalElements() {
         <button type="button" class="btn btn-outline-danger me-3" style="white-space: nowrap"
           id="footer_stop_button">停止 / Stop
         </button>
-        <button type="button" class="btn btn-outline-primary ms-auto" style="white-space: nowrap"
+        <button type="button" class="btn btn-outline-primary ms-auto"
+          onclick="window.location.reload();">刷新 / Refresh</button>
+        <button type="button" class="btn btn-outline-primary ms-3" style="white-space: nowrap"
           id="footer_label_button">开始 / Start
         </button>
       </div>
@@ -644,8 +844,9 @@ function createModalElements() {
               </label>
               <input type="text" class="form-control" id="search_value" required/>
             </div>
-            <div class="mb-3" data-bs-toggle="collapse" data-bs-target="#advanced_search"
-              type="button" id="advanced_search_controller">&#9658; 高级设置 / Advanced</div>
+            <button class="btn p-0 mb-3"
+              data-bs-toggle="collapse" data-bs-target="#advanced_search"
+              type="button" id="advanced_search_controller">&#9658; 高级设置 / Advanced</button>
             <div class="mb-3 px-3 collapse" id="advanced_search">
               <div class="mb-2">
                 <label class="form-label fw-light">标签匹配模式 / Match Pattern</label>
@@ -687,15 +888,36 @@ function createModalElements() {
     </div>
   `;
 
+  const clearBookmarkTagsModal = document.createElement("div");
+  clearBookmarkTagsModal.id = "clear_tags_modal";
+  clearBookmarkTagsModal.className = "modal fade";
+  clearBookmarkTagsModal.setAttribute("data-bs-backdrop", "static");
+  clearBookmarkTagsModal.tabIndex = -1;
+  clearBookmarkTagsModal.innerHTML = `
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content py-4 px-5">
+        <div class="fs-5 mb-4 text-center">
+          <div class="mt-4 mb-3">正在处理 / Working on</div>
+          <div id="clear_tags_prompt"></div>
+        </div>
+        <div class="progress my-4" id="clear_tags_progress" style="min-height: 1rem">
+          <div style="width: 0" class="progress-bar progress-bar-striped"
+           id="clear_tags_progress_bar" role="progressbar"></div>
+        </div>
+        <div class="my-4 text-center">
+          <button class="btn btn-danger" id="stop_remove_tag_button">停止 / Stop</button>
+        </div>
+      </div>
+    </div>
+  `;
+
   const body = document.querySelector("body");
   body.appendChild(popupLabel);
   body.appendChild(popupSearch);
+  body.appendChild(clearBookmarkTagsModal);
 }
 
-async function initializeVariables() {
-  uid = unsafeWindow["dataLayer"][0]["user_id"];
-  synonymDict = GM_getValue("synonymDict", {});
-
+async function userTagsPolyfill() {
   const tagsRaw = await fetch(
     "https://www.pixiv.net/ajax/user/" + uid + "/illusts/bookmark/tags"
   );
@@ -715,101 +937,214 @@ async function initializeVariables() {
     userTagsSet.add(decodeURI(obj.tag));
   }
   userTagsSet.delete("未分類");
+  return sortByParody(Array.from(userTagsSet));
+}
 
-  userTags = sortByParody(Array.from(userTagsSet));
+async function initializeVariables() {
+  // main page body excepts profile
+  const pageBody = document.querySelector(".sc-12rgki1-0.jMEnyM");
+  pageInfo =
+    Object.values(pageBody)[0]["child"]["memoizedProps"]["children"][1][
+      "props"
+    ];
+  if (DEBUG) console.log(pageInfo);
 
-  // get token
-  const userRaw = await fetch(
-    "https://www.pixiv.net/bookmark_add.php?type=illust&illust_id=83540927"
-  );
-  if (!userRaw.ok) {
-    return alert(`获取身份信息失败
-    Fail to fetch user information`);
-  }
-  const userRes = await userRaw.text();
-  const tokenPos = userRes.indexOf("pixiv.context.token");
-  const tokenEnd = userRes.indexOf(";", tokenPos);
-  token = userRes.slice(tokenPos, tokenEnd).split('"')[1];
+  const client = Object.values(
+    document.querySelector(".sc-gulj4d-0.eRjnRp").firstChild
+  )[0]["return"]["return"]["memoizedProps"]["client"];
+  if (DEBUG) console.log(client);
 
-  if (!token) {
-    console.log(`获取token失败
-    Fail to fetch token`);
+  uid = client["userId"];
+  token = client["token"];
+  lang = client["lang"];
+  synonymDict = getValue("synonymDict", {});
+  if (Object.keys(synonymDict).length) setValue("synonymDict", synonymDict);
+
+  if (pageInfo["page"] === "bookmark") {
+    // <section> contain tags and images
+    const el = await waitForDom(".sc-jgyytr-0.buukZm");
+    let props = {};
+
+    for (let i = 0; i < 100; i++) {
+      if (props["tagList"] && props["works"]) break;
+      else await delay(200);
+      props =
+        Object.values(el)[0]["return"]["memoizedProps"]["children"][3]["props"];
+    }
+    if (DEBUG) console.log(props);
+
+    userTags = props["tagList"];
+    userTags.splice(userTags.indexOf("未分類"), 1);
+    userTags = sortByParody(userTags);
+
+    tag = props.tag;
+    currentWorks = props.works;
+
+    // monitoring page change, tag change
+    const propsObserver = new MutationObserver(() => {
+      tag =
+        Object.values(el)[0]["return"]["memoizedProps"]["children"][3]["props"][
+          "tag"
+        ];
+      currentWorks =
+        Object.values(el)[0]["return"]["memoizedProps"]["children"][3]["props"][
+          "works"
+        ];
+      if (!tag || tag === "未分類") {
+        const removeTagButton = document.querySelector("#remove_tag_button");
+        if (removeTagButton && removeTagButton.style.display === "flex") {
+          removeTagButton.style.display = "none";
+        }
+      }
+      if (DEBUG)
+        console.log(
+          "Current Tag:",
+          tag,
+          currentWorks.length && currentWorks[0]["alt"]
+        );
+    });
+    propsObserver.observe(await waitForDom("ul.sc-9y4be5-1.jtUPOE"), {
+      childList: true,
+    });
+  } else {
+    userTags = await userTagsPolyfill();
   }
 
   if (DEBUG) {
-    console.log("uid:", uid);
-    console.log("token", token);
+    console.log("dict:", synonymDict);
     console.log("userTags:", userTags);
   }
 }
 
+const maxRetries = 100;
+async function waitForDom(selector) {
+  let dom;
+  for (let i = 0; i < maxRetries; i++) {
+    dom = document.querySelector(selector);
+    if (dom) return dom;
+    await delay(500);
+  }
+}
+
 function injectElements() {
+  const pageBody = document.querySelector(".sc-12rgki1-0.jMEnyM");
   const root = document.querySelector("nav");
   root.classList.add("d-flex");
   const buttonContainer = document.createElement("span");
-  buttonContainer.className = "flex-grow-1 justify-content-end";
-  buttonContainer.style.display = "none";
+  buttonContainer.className = "flex-grow-1 justify-content-end d-flex";
   buttonContainer.id = "label_bookmarks_buttons";
   buttonContainer.innerHTML = `
         <button class="label-button" data-bs-toggle="modal" data-bs-target="#search_modal" id="search_modal_button"/>
         <button class="label-button" data-bs-toggle="modal" data-bs-target="#label_modal" id="label_modal_button"/>
       `;
-  root.appendChild(buttonContainer);
 
-  const removeTagText = unsafeWindow["dataLayer"][0].lang.includes("zh")
-    ? "清除标签"
-    : "Remove Tags";
-  const removeButton = document.createElement("div");
-  removeButton.className = "sc-1ij5ui8-0 QihHO sc-13ywrd6-7 tPCje";
-  removeButton.setAttribute("aria-disabled", "true");
-  removeButton.setAttribute("role", "button");
-  removeButton.innerHTML = `<div aria-disabled="true" class="sc-4a5gah-0 kNlDsr">
+  const clearTagsText = lang.includes("zh") ? "清除标签" : "Remove Tags";
+  const clearTagsButton = document.createElement("div");
+  clearTagsButton.className = "sc-1ij5ui8-0 QihHO sc-13ywrd6-7 tPCje";
+  clearTagsButton.setAttribute("aria-disabled", "true");
+  clearTagsButton.setAttribute("role", "button");
+  clearTagsButton.innerHTML = `<div aria-disabled="true" class="sc-4a5gah-0 kNlDsr">
             <div class="sc-4a5gah-1 kHyYuA">
-              ${removeTagText}
+              ${clearTagsText}
             </div>
           </div>`;
-  removeButton.addEventListener("click", removeBookmarkTags);
+  clearTagsButton.addEventListener("click", clearBookmarkTags);
 
-  const editButton = document.querySelector("div.sc-1dg0za1-4.iczOV");
-  editButton.addEventListener(
-    "click",
-    () => {
-      const section = document.querySelector("section.sc-jgyytr-0.buukZm");
-      const editObserver = new MutationObserver(() => {
-        const removeBookmarkContainer = document.querySelector(
-          "div.sc-13ywrd6-4.cXBjgZ"
-        );
-        if (!removeBookmarkContainer) return;
-        removeBookmarkContainer.appendChild(removeButton);
-        const removeBookmarkContainerObserver = new MutationObserver(() => {
-          const value =
-            removeBookmarkContainer.children[2].getAttribute("aria-disabled");
-          removeButton.setAttribute("aria-disabled", value);
-          removeButton.children[0].setAttribute("aria-disabled", value);
-        });
-        removeBookmarkContainerObserver.observe(
-          removeBookmarkContainer.children[2],
-          { attributes: true }
-        );
+  const removeTagButton = document.createElement("div");
+  removeTagButton.id = "remove_tag_button";
+  removeTagButton.style.display = "none";
+  removeTagButton.style.marginRight = "16px";
+  removeTagButton.style.marginBottom = "12px";
+  removeTagButton.style.color = "rgba(0, 0, 0, 0.64)";
+  removeTagButton.style.cursor = "pointer";
+  removeTagButton.innerHTML = `
+    <div style="margin-right: 4px">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-trash" viewBox="0 0 16 16">
+        <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+        <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+      </svg>
+    </div>
+    <div class="fw-bold" id="remove_tag_prompt"></div>
+  `;
+  removeTagButton.addEventListener("click", removeCurrentTag);
+
+  function injection(_, injectionObserver) {
+    if (pageInfo["userId"] !== uid) return;
+    root.appendChild(buttonContainer);
+    setElementProperties();
+    setSynonymEventListener();
+
+    const editButtonContainer = document.querySelector(".sc-1dg0za1-6.fElfQf");
+    if (editButtonContainer) {
+      editButtonContainer.style.justifyContent = "initial";
+      editButtonContainer.firstElementChild.style.marginRight = "auto";
+      editButtonContainer.insertBefore(
+        removeTagButton,
+        editButtonContainer.lastChild
+      );
+      const editButtonObserver = new MutationObserver((MutationRecord) => {
+        if (!MutationRecord[0].addedNodes.length) {
+          // open edit mode
+          const removeBookmarkContainer = document.querySelector(
+            "div.sc-13ywrd6-4.cXBjgZ"
+          );
+          removeBookmarkContainer.appendChild(clearTagsButton);
+          const removeBookmarkContainerObserver = new MutationObserver(() => {
+            const value =
+              removeBookmarkContainer.children[2].getAttribute("aria-disabled");
+            clearTagsButton.setAttribute("aria-disabled", value);
+            clearTagsButton.children[0].setAttribute("aria-disabled", value);
+          });
+          removeBookmarkContainerObserver.observe(
+            removeBookmarkContainer.children[2],
+            { attributes: true }
+          );
+
+          if (tag && tag !== "未分類") {
+            document.querySelector("#remove_tag_prompt").innerText =
+              lang.includes("zh") ? "删除标签 " + tag : "Delete Tag " + tag;
+            removeTagButton.style.display = "flex";
+          }
+        } else {
+          // exit edit mode
+          removeTagButton.style.display = "none";
+        }
       });
-      editObserver.observe(section, { childList: true });
-    },
-    { once: true }
-  );
+      editButtonObserver.observe(editButtonContainer, {
+        childList: true,
+      });
+    }
+
+    const toUncategorized = document.querySelector(".sc-1mr081w-0.kZlOCw");
+    if (toUncategorized) {
+      toUncategorized.style.cursor = "pointer";
+      toUncategorized.onclick = () =>
+        (window.location.href = `https://www.pixiv.net/users/${uid}/bookmarks/artworks/未分類`);
+    }
+
+    console.log("[Label Bookmarks] Injected");
+    if (injectionObserver) injectionObserver.disconnect();
+    return true;
+  }
+
+  if (!injection()) {
+    const pageObserver = new MutationObserver(injection);
+    pageObserver.observe(pageBody, { childList: true });
+  }
 }
 
-async function setElementProperties() {
+function setElementProperties() {
   // label buttons
   const labelButton = document.querySelector("#label_modal_button");
   const searchButton = document.querySelector("#search_modal_button");
-  if (unsafeWindow["dataLayer"][0].lang.includes("zh")) {
+  if (lang.includes("zh")) {
     labelButton.innerText = "添加标签";
     searchButton.innerText = "搜索图片";
   } else {
     labelButton.innerText = "Label";
     searchButton.innerText = "Search";
   }
-  GM_addStyle(
+  addStyle(
     `.label-button {
          padding: 0 24px;
          background: transparent;
@@ -852,24 +1187,24 @@ async function setElementProperties() {
 
   // default value
   const addFirst = document.querySelector("#label_add_first");
-  addFirst.value = GM_getValue("addFirst", "true");
-  addFirst.onchange = () => GM_setValue("addFirst", addFirst.value);
+  addFirst.value = getValue("addFirst", "true");
+  addFirst.onchange = () => setValue("addFirst", addFirst.value);
 
   const tagToQuery = document.querySelector("#label_tag_query");
-  const tag = GM_getValue("tagToQuery", "未分類");
+  const tag = getValue("tagToQuery", "未分類");
   if (userTags.includes(tag)) tagToQuery.value = tag;
   // in case that tag has been deleted
   else tagToQuery.value = "未分類";
-  tagToQuery.onchange = () => GM_setValue("tagToQuery", tagToQuery.value);
+  tagToQuery.onchange = () => setValue("tagToQuery", tagToQuery.value);
 
   const publicationType = document.querySelector("#label_publication_type");
-  publicationType.value = GM_getValue("publicationType", "show");
+  publicationType.value = getValue("publicationType", "show");
   publicationType.onchange = () =>
-    GM_setValue("publicationType", publicationType.value);
+    setValue("publicationType", publicationType.value);
 
   const retainTag = document.querySelector("#label_retain_tag");
-  retainTag.value = GM_getValue("retainTag", "false");
-  retainTag.onchange = () => GM_setValue("retainTag", retainTag.value);
+  retainTag.value = getValue("retainTag", "false");
+  retainTag.onchange = () => setValue("retainTag", retainTag.value);
 
   // search bookmark form
   const searchForm = document.querySelector("#search_form");
@@ -878,7 +1213,11 @@ async function setElementProperties() {
   const footerSearch = document.querySelector("#footer_search_button");
   footerSearch.onclick = () => searchMore.click();
 
-  let synonymDictKeys = Object.keys(GM_getValue("synonymDict", {}));
+  document
+    .querySelector("#stop_remove_tag_button")
+    .addEventListener("click", () => (window.runFlag = false));
+
+  let synonymDictKeys = Object.keys(synonymDict);
   if (synonymDictKeys.length) {
     const index = Math.floor(Math.random() * synonymDictKeys.length);
     document
@@ -888,18 +1227,6 @@ async function setElementProperties() {
         "eg: " + synonymDictKeys[index].split("(")[0]
       );
   }
-
-  let counter = 0;
-  const id = setInterval(() => {
-    counter++;
-    const uidMatch = window.location.href.match(/\d+/);
-    if (uidMatch && uidMatch[0] === uid) {
-      document.querySelector("#label_bookmarks_buttons").style.display = "flex";
-      clearInterval(id);
-    } else if (counter > 100) {
-      clearInterval(id);
-    }
-  }, 1000);
 }
 
 function setSynonymEventListener() {
@@ -912,12 +1239,6 @@ function setSynonymEventListener() {
 
   // update preview
   function updatePreview(synonymDict) {
-    const newDict = {};
-    for (let key of sortByParody(Object.keys(synonymDict))) {
-      newDict[key] = synonymDict[key];
-    }
-    synonymDict = newDict;
-    GM_setValue("synonymDict", synonymDict);
     let synonymString = "";
     for (let key of Object.keys(synonymDict)) {
       synonymString += key + "\n\t" + synonymDict[key].join(" ") + "\n\n";
@@ -933,8 +1254,11 @@ function setSynonymEventListener() {
       const reader = new FileReader();
       reader.onload = (evt) => {
         try {
-          synonymDict = JSON.parse(evt.target.result.toString());
-          GM_setValue("synonymDict", synonymDict);
+          let json = {};
+          eval("json = " + evt.target.result.toString());
+          if (Array.isArray(json)) synonymDict = json[0];
+          else synonymDict = json;
+          setValue("synonymDict", synonymDict);
           updatePreview(synonymDict);
         } catch (err) {
           alert("无法加载词典 / Fail to load dictionary\n" + err);
@@ -951,7 +1275,10 @@ function setSynonymEventListener() {
         type: "application/json",
       })
     );
-    a.setAttribute("download", "label_pixiv_bookmarks_synonym_dict.json");
+    a.setAttribute(
+      "download",
+      `label_pixiv_bookmarks_synonym_dict_${new Date().toLocaleDateString()}.json`
+    );
     a.click();
   });
   // load alias
@@ -976,16 +1303,33 @@ function setSynonymEventListener() {
     const aliasValue = alias.value;
     if (aliasValue === "") {
       // delete
-      if (synonymDict[targetValue]) {
+      if (
+        synonymDict[targetValue] &&
+        window.confirm(
+          `将会删除 ${targetValue}，请确认\nWill remove ${targetValue}. Is this okay?`
+        )
+      ) {
         delete synonymDict[targetValue];
       }
     } else {
-      // update
-      synonymDict[targetValue] = aliasValue.trim().split(" ");
+      const value = aliasValue
+        .trim()
+        .split(" ")
+        .filter((i) => i);
+      if (synonymDict[targetValue]) {
+        synonymDict[targetValue] = value; // update
+      } else {
+        synonymDict[targetValue] = value; // add and sort
+        const newDict = {};
+        for (let key of sortByParody(Object.keys(synonymDict))) {
+          newDict[key] = synonymDict[key];
+        }
+        synonymDict = newDict;
+      }
     }
     targetTag.value = "";
     alias.value = "";
-    GM_setValue("synonymDict", synonymDict);
+    setValue("synonymDict", synonymDict);
     updatePreview(synonymDict);
   });
   // filter
@@ -1014,19 +1358,16 @@ function setSynonymEventListener() {
       document.querySelector("input#synonym_filter").value = "";
       updatePreview(synonymDict);
     });
+  // restore
+  document
+    .querySelector("button#label_restore_dict")
+    .addEventListener("click", restoreSynonymDict);
+  if (DEBUG) console.log("[Label Bookmarks] Synonym Dictionary Ready");
 }
 
 (function () {
   "use strict";
   loadResources();
   createModalElements();
-  const intervalId = setInterval(() => {
-    if (document.querySelector("nav")) {
-      clearInterval(intervalId);
-      initializeVariables()
-        .then(injectElements)
-        .then(setElementProperties)
-        .then(setSynonymEventListener);
-    }
-  }, 1000);
+  waitForDom("nav").then(initializeVariables).then(injectElements);
 })();
