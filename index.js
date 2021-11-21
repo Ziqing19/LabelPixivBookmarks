@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      4.3
+// @version      4.4
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -459,6 +459,7 @@ async function handleLabel(evt) {
         console.log("\taddTags:", addTags, "removeTags:", removeTags);
       }
 
+      promptBottom.innerText = `处理中，请勿关闭窗口 / Processing. Please do not close the window.\n${work.alt}`;
       await updateBookmarkTags([bookmarkId], addTags, removeTags);
 
       if (!window.runFlag) {
@@ -494,6 +495,7 @@ async function handleSearch(evt) {
   const newSearch = { searchString, matchPattern, tagToQuery, publicationType };
 
   // initialize new search
+  window.runFlag = true;
   const resultsDiv = document.querySelector("#search_results");
   const noResult = document.querySelector("#no_result");
   if (noResult) resultsDiv.removeChild(noResult);
@@ -507,15 +509,20 @@ async function handleSearch(evt) {
     while (resultsDiv.firstChild) {
       resultsDiv.removeChild(resultsDiv.firstChild);
     }
+    clearTimeout(timeout);
+    document.querySelector("#search_suggestion").parentElement.style.display =
+      "none";
   } else {
     searchBatch += 200;
   }
 
-  if (searchOffset && searchOffset === totalBookmarks)
+  if (searchOffset && searchOffset === totalBookmarks) {
+    window.runFlag = false;
     return alert(`
     已经完成所选标签下所有收藏的搜索！
     All Bookmarks Of Selected Tag Have Been Searched!
     `);
+  }
 
   document.querySelector("#spinner").style.display = "block";
 
@@ -617,14 +624,21 @@ async function handleSearch(evt) {
 
       if (includeArray.every(ifInclude) && !excludeArray.some(ifInclude)) {
         searchResults.push(work);
+        const tagsString = work.tags
+          .slice(0, 6)
+          .map((i) => "#" + i)
+          .join(" ");
         const container = document.createElement("div");
         container.className = "col-4 col-lg-3 col-xl-2 p-1";
         container.innerHTML = `
-        <div class="mb-1">
+       <div class="mb-1">
          <a href=${"/artworks/" + work.id} target="_blank" rel="noreferrer">
-          <img src=${work.url} alt="square" class="rounded-3 img-fluid" />
-          </a>
-        </div>
+           <img src=${work.url} alt="square" class="rounded-3 img-fluid" />
+         </a>
+       </div>
+       <div class="mb-1" style="font-size: 10px; color: rgb(61, 118, 153); pointer-events: none">
+         ${tagsString}
+       </div>
        <div class="mb-1">
          <a href=${"/artworks/" + work.id}
           target="_blank" rel="noreferrer"
@@ -666,6 +680,7 @@ No Result
   }
   document.querySelector("#spinner").style.display = "none";
   console.log(searchResults);
+  window.runFlag = false;
 }
 
 function createModalElements() {
@@ -724,6 +739,10 @@ function createModalElements() {
                 <input class="form-control mb-3" type="text" id="target_tag" placeholder="eg: 新世紀エヴァンゲリオン">
                 <label class="form-label fw-light" for="tag_alias">同义词（作品标签，空格分割，不区分大小写） / Alias (From Artwork, Space Delimited, Case-Insensitive)</label>
                 <input class="form-control mb-3" type="text" id="tag_alias" placeholder="eg: エヴァンゲリオン evangelion eva">
+                <div class="mb-3" style="display: none" >
+                  <div class="mb-2">备选同义词 / Suggested Alias</div>
+                  <div class="ms-3" id="label_suggestion"></div>
+                </div>
                 <div class="d-flex mb-3" id="synonym_buttons">
                   <button type="button" class="btn btn-outline-primary me-auto" title="保存至本地\nSave to Local Disk">导出词典 / Export Dict</button>
                   <button type="button" class="btn btn-outline-primary me-3" title="加载已有标签的同义词\nLoad Alias of Existing User Tag">加载标签 / Load Tag</button>
@@ -838,11 +857,15 @@ function createModalElements() {
                 输入要搜索的关键字，使用空格分隔，在关键字前加<strong>感叹号</strong>来排除该关键字。将会结合用户设置的同义词词典，
                 在收藏的图片中寻找标签匹配的图片展示在下方。当收藏时间跨度较大时，使用自定义标签缩小范围以加速搜索。
                 <br />
-                Enter keywords seperated by spaces to launch a search. Add a <strong>Question Mark</strong>
+                Enter keywords seperated by spaces to launch a search. Add a <strong>Exclamation Mark</strong>
                 before any keyword to exclude it. The search process will use your synonym dictionary to look up the tags
                 of your bookmarked images. Use custom tag to narrow the search if images come from a wide time range.
               </label>
               <input type="text" class="form-control" id="search_value" required/>
+              <div class="mt-3" style="display: none">
+                <div class="mb-2">您是否想要搜索 / Are you looking for:</div>
+                <div class="ms-3" id="search_suggestion"></div>
+              </div>
             </div>
             <button class="btn p-0 mb-3"
               data-bs-toggle="collapse" data-bs-target="#advanced_search"
@@ -1043,7 +1066,7 @@ function injectElements() {
   clearTagsButton.className = "sc-1ij5ui8-0 QihHO sc-13ywrd6-7 tPCje";
   clearTagsButton.setAttribute("aria-disabled", "true");
   clearTagsButton.setAttribute("role", "button");
-  clearTagsButton.innerHTML = `<div aria-disabled="true" class="sc-4a5gah-0 kNlDsr">
+  clearTagsButton.innerHTML = `<div aria-disabled="true" class="sc-4a5gah-0 gbA-dUP">
             <div class="sc-4a5gah-1 kHyYuA">
               ${clearTagsText}
             </div>
@@ -1115,7 +1138,7 @@ function injectElements() {
       });
     }
 
-    const toUncategorized = document.querySelector(".sc-1mr081w-0.kZlOCw");
+    const toUncategorized = document.querySelector(".sc-1mr081w-0");
     if (toUncategorized) {
       toUncategorized.style.cursor = "pointer";
       toUncategorized.onclick = () =>
@@ -1131,6 +1154,88 @@ function injectElements() {
     const pageObserver = new MutationObserver(injection);
     pageObserver.observe(pageBody, { childList: true });
   }
+}
+
+let timeout = null,
+  prevKeyword = null;
+async function updateSuggestion(
+  evt,
+  suggestionEl,
+  searchDict,
+  handleClickCandidateButton
+) {
+  clearTimeout(timeout);
+  const keywordsArray = evt.target.value.split(" ");
+  const keyword = keywordsArray[keywordsArray.length - 1]
+    .replace(/^!/, "")
+    .replace(/^！/, "");
+  if (
+    window.runFlag ||
+    !keyword ||
+    !keyword.length ||
+    keyword === " " ||
+    keyword === prevKeyword
+  )
+    return;
+  timeout = setTimeout(async () => {
+    suggestionEl.parentElement.style.display = "none";
+    prevKeyword = keyword;
+    setTimeout(() => (prevKeyword = null), 3000);
+    while (suggestionEl.firstElementChild) {
+      suggestionEl.removeChild(suggestionEl.firstElementChild);
+    }
+
+    let candidates = [];
+    if (searchDict) {
+      let dictKeys = Object.keys(synonymDict).filter((el) =>
+        el.toUpperCase().includes(keyword.toUpperCase())
+      );
+      if (dictKeys.length)
+        candidates = dictKeys.map((dictKey) => ({
+          tag_name: synonymDict[dictKey][0],
+          tag_translation: dictKey,
+        }));
+      if (!candidates.length) {
+        dictKeys = Object.keys(synonymDict).filter((key) =>
+          synonymDict[key]
+            .toUpperCase()
+            .map((i) => i.split("(")[0])
+            .includes(keyword.split("(")[0].toUpperCase())
+        );
+        if (dictKeys.length)
+          candidates = dictKeys.map((dictKey) => ({
+            tag_name: synonymDict[dictKey][0],
+            tag_translation: dictKey,
+          }));
+      }
+    }
+    if (!candidates.length) {
+      const resRaw = await fetch(
+        `https://www.pixiv.net/rpc/cps.php?keyword=${encodeURI(
+          keyword
+        )}&lang=${lang}`
+      );
+      const res = await resRaw.json();
+      candidates = res["candidates"].filter((i) => i["tag_name"] !== keyword);
+    }
+    if (candidates.length) {
+      for (let candidate of candidates) {
+        const candidateButton = document.createElement("button");
+        candidateButton.type = "button";
+        candidateButton.className = "btn p-0 mb-1 d-block";
+        candidateButton.innerHTML = `${
+          candidate["tag_translation"] || "<span>🈳</span>"
+        } - ${candidate["tag_name"]}`;
+        handleClickCandidateButton(candidate, candidateButton);
+        suggestionEl.appendChild(candidateButton);
+      }
+    } else {
+      const noCandidate = document.createElement("div");
+      noCandidate.innerText = "无备选 / No Suggestion";
+      suggestionEl.appendChild(noCandidate);
+    }
+    suggestionEl.parentElement.style.display = "block";
+  }, 500);
 }
 
 function setElementProperties() {
@@ -1217,6 +1322,27 @@ function setElementProperties() {
     .querySelector("#stop_remove_tag_button")
     .addEventListener("click", () => (window.runFlag = false));
 
+  // search with suggestion
+  const searchInput = document.querySelector("#search_value");
+  const searchSuggestion = document.querySelector("#search_suggestion");
+  searchInput.addEventListener("keyup", (evt) =>
+    updateSuggestion(
+      evt,
+      searchSuggestion,
+      true,
+      (candidate, candidateButton) =>
+        candidateButton.addEventListener("click", () => {
+          const keywordsArray = searchInput.value.split(" ");
+          const keyword = keywordsArray[keywordsArray.length - 1];
+          let newKeyword = candidate["tag_name"];
+          if (keyword.match(/^!/) || keyword.match(/^！/))
+            newKeyword = "!" + newKeyword;
+          keywordsArray.splice(keywordsArray.length - 1, 1, newKeyword);
+          searchInput.value = keywordsArray.join(" ");
+        })
+    )
+  );
+
   let synonymDictKeys = Object.keys(synonymDict);
   if (synonymDictKeys.length) {
     const index = Math.floor(Math.random() * synonymDictKeys.length);
@@ -1236,6 +1362,19 @@ function setSynonymEventListener() {
   const buttons = document
     .querySelector("#synonym_buttons")
     .querySelectorAll("button");
+
+  const labelSuggestion = document.querySelector("#label_suggestion");
+  targetTag.addEventListener("keyup", (evt) =>
+    updateSuggestion(
+      evt,
+      labelSuggestion,
+      false,
+      (candidate, candidateButton) =>
+        candidateButton.addEventListener("click", () => {
+          alias.value = alias.value + " " + candidate["tag_name"];
+        })
+    )
+  );
 
   // update preview
   function updatePreview(synonymDict) {
@@ -1284,6 +1423,7 @@ function setSynonymEventListener() {
   // load alias
   buttons[1].addEventListener("click", (evt) => {
     evt.preventDefault();
+    labelSuggestion.parentElement.style.display = "none";
     const targetValue = targetTag.value;
     for (let key of Object.keys(synonymDict)) {
       if (key === targetValue) {
@@ -1295,6 +1435,7 @@ function setSynonymEventListener() {
   // update the alias array
   buttons[2].addEventListener("click", (evt) => {
     evt.preventDefault();
+    labelSuggestion.parentElement.style.display = "none";
     const targetValue = targetTag.value
       .split(" ")[0]
       .replace("（", "(")
