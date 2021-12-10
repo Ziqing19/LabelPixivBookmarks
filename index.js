@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      4.4
+// @version      4.6
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -335,7 +335,7 @@ Tag ${tag} Removed!`;
   }, 1000);
 }
 
-const DEBUG = false;
+const DEBUG = true;
 async function handleLabel(evt) {
   evt.preventDefault();
 
@@ -963,73 +963,151 @@ async function userTagsPolyfill() {
   return sortByParody(Array.from(userTagsSet));
 }
 
+async function fetchTokenPolyfill() {
+  // get token
+  const userRaw = await fetch(
+    "https://www.pixiv.net/bookmark_add.php?type=illust&illust_id=83540927"
+  );
+  if (!userRaw.ok) {
+    console.log(`获取身份信息失败
+    Fail to fetch user information`);
+    throw new Error();
+  }
+  const userRes = await userRaw.text();
+  const tokenPos = userRes.indexOf("pixiv.context.token");
+  const tokenEnd = userRes.indexOf(";", tokenPos);
+  return userRes.slice(tokenPos, tokenEnd).split('"')[1];
+}
+
 async function initializeVariables() {
-  // main page body excepts profile
-  const pageBody = document.querySelector(".sc-12rgki1-0.jMEnyM");
-  pageInfo =
-    Object.values(pageBody)[0]["child"]["memoizedProps"]["children"][1][
-      "props"
-    ];
-  if (DEBUG) console.log(pageInfo);
-
-  const client = Object.values(
-    document.querySelector(".sc-gulj4d-0.eRjnRp").firstChild
-  )[0]["return"]["return"]["memoizedProps"]["client"];
-  if (DEBUG) console.log(client);
-
-  uid = client["userId"];
-  token = client["token"];
-  lang = client["lang"];
   synonymDict = getValue("synonymDict", {});
   if (Object.keys(synonymDict).length) setValue("synonymDict", synonymDict);
 
-  if (pageInfo["page"] === "bookmark") {
-    // <section> contain tags and images
-    const el = await waitForDom(".sc-jgyytr-0.buukZm");
-    let props = {};
+  try {
+    const client = Object.values(
+      document.querySelector(".sc-gulj4d-0.eRjnRp").firstChild
+    )[0]["return"]["return"]["memoizedProps"]["client"];
+    if (DEBUG) console.log(client);
+    uid = client["userId"];
+    token = client["token"];
+    lang = client["lang"];
+  } catch (err) {
+    console.log(err);
+    const dataLayer = unsafeWindow["dataLayer"][0];
+    uid = dataLayer["user_id"];
+    lang = dataLayer["lang"];
+    token = await fetchTokenPolyfill();
+  }
 
-    for (let i = 0; i < 100; i++) {
-      if (props["tagList"] && props["works"]) break;
-      else await delay(200);
-      props =
-        Object.values(el)[0]["return"]["memoizedProps"]["children"][3]["props"];
-    }
-    if (DEBUG) console.log(props);
+  // main page body excepts profile
+  const pageBody = document.querySelector(".sc-12rgki1-0.jMEnyM");
+  try {
+    pageInfo =
+      Object.values(pageBody)[0]["child"]["memoizedProps"]["children"][1][
+        "props"
+      ];
+  } catch (err) {
+    console.log(err);
+    pageInfo = {
+      page: window.location.href.includes("bookmarks") ? "bookmark" : "top",
+    };
+  } finally {
+    if (DEBUG) console.log(pageInfo);
+  }
 
-    userTags = props["tagList"];
-    userTags.splice(userTags.indexOf("未分類"), 1);
-    userTags = sortByParody(userTags);
-
-    tag = props.tag;
-    currentWorks = props.works;
-
-    // monitoring page change, tag change
-    const propsObserver = new MutationObserver(() => {
-      tag =
-        Object.values(el)[0]["return"]["memoizedProps"]["children"][3]["props"][
-          "tag"
-        ];
-      currentWorks =
-        Object.values(el)[0]["return"]["memoizedProps"]["children"][3]["props"][
-          "works"
-        ];
-      if (!tag || tag === "未分類") {
-        const removeTagButton = document.querySelector("#remove_tag_button");
-        if (removeTagButton && removeTagButton.style.display === "flex") {
-          removeTagButton.style.display = "none";
-        }
-      }
-      if (DEBUG)
-        console.log(
-          "Current Tag:",
-          tag,
-          currentWorks.length && currentWorks[0]["alt"]
+  function injectSortTagsInEditArtworkTagsMenu() {
+    const editContextButtons = [
+      ...document.querySelectorAll(".sc-1ij5ui8-0.QihHO"),
+    ];
+    try {
+      if (editContextButtons.length)
+        editContextButtons.forEach((el) =>
+          el.addEventListener("click", async () => {
+            const addTagButton = await waitForDom(".sc-1o6692m-0.hVxezo");
+            addTagButton.addEventListener("click", async () => {
+              const list = await waitForDom(".sc-1es12zl-0.duzCrT");
+              [...list.children]
+                .sort((a, b) => {
+                  const checkedA = a.querySelector("input").checked;
+                  const checkedB = b.querySelector("input").checked;
+                  if (checkedA && !checkedB) return -1;
+                  else if (!checkedA && checkedB) return 1;
+                  else {
+                    const innerA = a.innerText.slice(1); // remove leading hash
+                    const innerB = b.innerText.slice(1);
+                    return userTags.indexOf(innerA) - userTags.indexOf(innerB);
+                  }
+                })
+                .forEach((node) => list.appendChild(node));
+            });
+          })
         );
-    });
-    propsObserver.observe(await waitForDom("ul.sc-9y4be5-1.jtUPOE"), {
-      childList: true,
-    });
+      else
+        console.log(
+          "[Label Bookmarks] Abort injecting sort tag listener due to edit context buttons not found"
+        );
+    } catch (err) {
+      console.log(err);
+    }
+  }
+  if (pageInfo["page"] === "bookmark") {
+    try {
+      // <section> contain tags and images
+      const el = await waitForDom("section.sc-jgyytr-0.buukZm");
+      let props = {};
+
+      for (let i = 0; i < 100; i++) {
+        if (props["tagList"] && props["works"]) break;
+        else await delay(200);
+        props =
+          Object.values(el)[0]["return"]["memoizedProps"]["children"][3][
+            "props"
+          ];
+      }
+      if (DEBUG) console.log(props);
+
+      userTags = props["tagList"];
+      userTags.splice(userTags.indexOf("未分類"), 1);
+      userTags = sortByParody(userTags);
+
+      tag = props.tag;
+      currentWorks = props.works;
+
+      injectSortTagsInEditArtworkTagsMenu();
+      // monitoring page change, tag change
+      const propsObserver = new MutationObserver(() => {
+        tag =
+          Object.values(el)[0]["return"]["memoizedProps"]["children"][3][
+            "props"
+          ]["tag"];
+        currentWorks =
+          Object.values(el)[0]["return"]["memoizedProps"]["children"][3][
+            "props"
+          ]["works"];
+        if (!tag || tag === "未分類") {
+          const removeTagButton = document.querySelector("#remove_tag_button");
+          if (removeTagButton && removeTagButton.style.display === "flex") {
+            removeTagButton.style.display = "none";
+          }
+        }
+        injectSortTagsInEditArtworkTagsMenu();
+
+        if (DEBUG)
+          console.log(
+            "Current Tag:",
+            tag,
+            currentWorks.length && currentWorks[0]["alt"]
+          );
+      });
+      propsObserver.observe(await waitForDom("ul.sc-9y4be5-1.jtUPOE"), {
+        childList: true,
+      });
+    } catch (err) {
+      console.log(err);
+      if (!userTags) userTags = await userTagsPolyfill();
+    }
   } else {
+    // no page info
     userTags = await userTagsPolyfill();
   }
 
@@ -1047,6 +1125,9 @@ async function waitForDom(selector) {
     if (dom) return dom;
     await delay(500);
   }
+  throw new ReferenceError(
+    `[Label Bookmarks] Dom element ${selector} not loaded in given time`
+  );
 }
 
 function injectElements() {
