@@ -2,14 +2,14 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      4.6
+// @version      4.8
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
 // @match        https://www.pixiv.net/*users/*
 // @icon         https://www.google.com/s2/favicons?domain=pixiv.net
-// @resource     bootstrapCSS https://cdn.jsdelivr.net/npm/bootstrap@5.0.1/dist/css/bootstrap.min.css
-// @resource     bootstrapJS https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js
+// @resource     bootstrapCSS https://cdn.jsdelivr.net/npm/bootstrap@5.2.0-beta1/dist/css/bootstrap.min.css
+// @resource     bootstrapJS https://cdn.jsdelivr.net/npm/bootstrap@5.2.0-beta1/dist/js/bootstrap.bundle.min.js
 // @grant        unsafeWindow
 // @grant        GM_getResourceURL
 // @grant        GM_getValue
@@ -152,13 +152,18 @@ function loadResources() {
   function jsElement(url) {
     const script = document.createElement("script");
     script.src = url;
-    script.integrity =
-      "sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM";
     script.crossOrigin = "anonymous";
     return script;
   }
+
   document.head.appendChild(cssElement(GM_getResourceURL("bootstrapCSS")));
   document.head.appendChild(jsElement(GM_getResourceURL("bootstrapJS")));
+
+  // overwrite bootstrap global box-sizing style
+  const style = document.createElement("style");
+  style.innerHTML =
+    "*,::after,::before { box-sizing: content-box; } .form-control,.form-select,.row>* { box-sizing: border-box; }";
+  document.head.appendChild(style);
 }
 
 const bookmarkBatchSize = 100;
@@ -322,7 +327,16 @@ Removing Tag ${tag}
 `;
 
     const ids = totalBookmarks.map((work) => work["bookmarkData"]["id"]);
-    if (ids.length) await updateBookmarkTags(ids, undefined, [tag]);
+    if (ids.length) {
+      const batchNum = Math.ceil(ids.length / 96);
+      for (let i of [...Array(batchNum).keys()]) {
+        await updateBookmarkTags(
+          ids.filter((_, j) => j >= i * 96 && j < (i + 1) * 96),
+          undefined,
+          [tag]
+        );
+      }
+    }
 
     progressBar.style.width = 100 + "%";
     prompt.innerText = `标签${tag}删除完成！
@@ -401,17 +415,31 @@ async function handleLabel(evt) {
       let intersection = userTags.filter((userTag) => {
         // if work tags includes this user tag
         if (
-          workTags.toUpperCase().includes(userTag.toUpperCase()) ||
-          workTags.toUpperCase().includes(userTag.toUpperCase().split("(")[0])
+          workTags.toUpperCase().includes(userTag.toUpperCase()) || // full tag
+          workTags
+            .toUpperCase()
+            .includes(userTag.toUpperCase().split("(")[0]) || // char name
+          workTags.some(
+            (workTag) =>
+              (workTag.toUpperCase().split("(")[1] || "").split(")")[0] ===
+              userTag
+          ) // parody name
         )
           return true;
-        // if work tags match an user alias (exact match)
+        // if work tags match a user alias (exact match)
         return (
           synonymDict[userTag] &&
           synonymDict[userTag].find(
             (alias) =>
               workTags.toUpperCase().includes(alias.toUpperCase()) ||
-              workTags.toUpperCase().includes(alias.toUpperCase().split("(")[0])
+              workTags
+                .toUpperCase()
+                .includes(alias.toUpperCase().split("(")[0]) ||
+              workTags.some(
+                (workTag) =>
+                  (workTag.toUpperCase().split("(")[1] || "").split(")")[0] ===
+                  alias
+              ) // parody name
           )
         );
       });
@@ -431,6 +459,7 @@ async function handleLabel(evt) {
           })
           .filter((i) => i)
       );
+      if (work["xRestrict"]) intersection.push("R-18");
       // remove duplicate
       intersection = Array.from(new Set(intersection));
 
@@ -490,6 +519,8 @@ async function handleSearch(evt) {
     .querySelector("#search_value")
     .value.replace(/！/g, "!");
   const matchPattern = document.querySelector("#search_exact_match").value;
+  const tagsLengthMatch =
+    document.querySelector("#search_length_match").value === "true";
   const tagToQuery = document.querySelector("#search_select_tag").value;
   const publicationType = document.querySelector("#search_publication").value;
   const newSearch = { searchString, matchPattern, tagToQuery, publicationType };
@@ -541,7 +572,7 @@ async function handleSearch(evt) {
 
   console.log("Search Configuration:");
   console.log(
-    `matchPattern: ${matchPattern}; tagToQuery: ${tagToQuery}; publicationType: ${publicationType}`
+    `matchPattern: ${matchPattern}; tagsLengthMatch: ${tagsLengthMatch}; tagToQuery: ${tagToQuery}; publicationType: ${publicationType}`
   );
   console.log("includeArray:", includeArray, "excludeArray", excludeArray);
 
@@ -569,60 +600,66 @@ async function handleSearch(evt) {
       searchOffset++;
 
       if (work.title === "-----") continue;
+      const userTags =
+        bookmarks["bookmarkTags"][work["bookmarkData"]["id"]] || []; // empty if uncategorized
       const workTags = work["tags"];
+      const mergedTags = [...userTags, ...workTags];
 
       const ifInclude = (keyword) => {
         // especially, R-18 tag is labelled in work
         if (["R-18", "R18", "r18"].includes(keyword)) return work["xRestrict"];
 
+        // convert input keyword to a user tag
         // keywords from user input, alias from dict
         // keyword: 新世纪福音战士
         // alias: EVA eva
         const el = Object.keys(synonymDict)
-          .map((i) => [i.split("(")[0], i])
+          .map((key) => [key.split("(")[0], key]) // [char name, full key]
           .find(
             (el) =>
-              el[0].toUpperCase() === keyword.toUpperCase() ||
+              el[0].toUpperCase() === keyword.toUpperCase() || // input match char name
+              el[1].toUpperCase() === keyword.toUpperCase() || // input match full name
+              synonymDict[el[1]]
+                .toUpperCase()
+                .includes(keyword.toUpperCase()) || // input match any alias
               (matchPattern === "fuzzy" &&
-                el[0].toUpperCase().includes(keyword.toUpperCase()))
+                (el[1].toUpperCase().includes(keyword.toUpperCase()) ||
+                  synonymDict[el[1]]
+                    .toUpperCase()
+                    .some((alias) => alias.includes(keyword.toUpperCase()))))
           );
-        const keywordArray = el
-          ? synonymDict[el[1]].concat(keyword)
-          : [keyword];
+        const keywordArray = [keyword];
+        if (el) {
+          keywordArray.push(...el);
+          keywordArray.push(...synonymDict[el[1]]);
+        }
+        console.log(
+          work.title,
+          keywordArray.some(
+            (kw) =>
+              mergedTags.some((tag) =>
+                tag.toUpperCase().includes(kw.toUpperCase())
+              ),
+            keywordArray
+          )
+        );
         if (
           keywordArray.some((kw) =>
-            workTags.toUpperCase().includes(kw.toUpperCase())
-          ) ||
-          keywordArray.some(
-            (
-              kw // remove work tag braces
-            ) =>
-              workTags
-                .map((tag) => tag.split("(")[0])
-                .toUpperCase()
-                .includes(kw.toUpperCase())
+            mergedTags.toUpperCase().includes(kw.toUpperCase())
           )
         )
           return true;
         if (matchPattern === "exact") return false;
-        return keywordArray.some(
-          (kw) =>
-            workTags.some((tag) =>
-              tag.toUpperCase().includes(kw.toUpperCase())
-            ) ||
-            keywordArray.some(
-              (
-                kw // remove work tag braces
-              ) =>
-                workTags
-                  .toUpperCase()
-                  .map((tag) => tag.split("(")[0])
-                  .some((tag) => tag.includes(kw.toUpperCase()))
-            )
+        return keywordArray.some((kw) =>
+          mergedTags.some((tag) => tag.toUpperCase().includes(kw.toUpperCase()))
         );
       };
 
-      if (includeArray.every(ifInclude) && !excludeArray.some(ifInclude)) {
+      if (
+        (!tagsLengthMatch || includeArray.length === userTags.length) &&
+        includeArray.every(ifInclude) &&
+        !excludeArray.some(ifInclude)
+      ) {
         searchResults.push(work);
         const tagsString = work.tags
           .slice(0, 6)
@@ -737,8 +774,8 @@ function createModalElements() {
               <div class="mb-3 collapse" id="edit_synonym_dict">
                 <label class="form-label fw-light" for="target_tag">目标标签（用户标签） / Target Tag (User Tag)</label>
                 <input class="form-control mb-3" type="text" id="target_tag" placeholder="eg: 新世紀エヴァンゲリオン">
-                <label class="form-label fw-light" for="tag_alias">同义词（作品标签，空格分割，不区分大小写） / Alias (From Artwork, Space Delimited, Case-Insensitive)</label>
-                <input class="form-control mb-3" type="text" id="tag_alias" placeholder="eg: エヴァンゲリオン evangelion eva">
+                <label class="form-label fw-light" for="tag_alias">同义词（作品标签，空格/回车分割，不区分大小写） / Alias (From Artwork, Space/Line Delimited, Case-Insensitive)</label>
+                <textarea class="form-control mb-3" rows="2" id="tag_alias" style="min-height: initial" placeholder="eg: エヴァンゲリオン evangelion eva"></textarea>
                 <div class="mb-3" style="display: none" >
                   <div class="mb-2">备选同义词 / Suggested Alias</div>
                   <div class="ms-3" id="label_suggestion"></div>
@@ -879,6 +916,13 @@ function createModalElements() {
                 </select>
               </div>
               <div class="mb-2">
+                <label class="form-label fw-light">搜索标签数量匹配 / Search Tags Length Match</label>
+                <select class="form-select" id="search_length_match">
+                  <option value="false">不需匹配 / Not Needed</option>
+                  <option value="true">需要匹配 / Must Match</option>
+                </select>
+              </div>
+              <div class="mb-2">
                 <label class="form-label fw-light">自定义标签用于缩小搜索范围 / Custom Tag to Narrow the Search</label>
                 <select class="form-select select-custom-tags" id="search_select_tag">
                   <option value="">所有收藏 / All Works</option>
@@ -1015,41 +1059,6 @@ async function initializeVariables() {
     if (DEBUG) console.log(pageInfo);
   }
 
-  function injectSortTagsInEditArtworkTagsMenu() {
-    const editContextButtons = [
-      ...document.querySelectorAll(".sc-1ij5ui8-0.QihHO"),
-    ];
-    try {
-      if (editContextButtons.length)
-        editContextButtons.forEach((el) =>
-          el.addEventListener("click", async () => {
-            const addTagButton = await waitForDom(".sc-1o6692m-0.hVxezo");
-            addTagButton.addEventListener("click", async () => {
-              const list = await waitForDom(".sc-1es12zl-0.duzCrT");
-              [...list.children]
-                .sort((a, b) => {
-                  const checkedA = a.querySelector("input").checked;
-                  const checkedB = b.querySelector("input").checked;
-                  if (checkedA && !checkedB) return -1;
-                  else if (!checkedA && checkedB) return 1;
-                  else {
-                    const innerA = a.innerText.slice(1); // remove leading hash
-                    const innerB = b.innerText.slice(1);
-                    return userTags.indexOf(innerA) - userTags.indexOf(innerB);
-                  }
-                })
-                .forEach((node) => list.appendChild(node));
-            });
-          })
-        );
-      else
-        console.log(
-          "[Label Bookmarks] Abort injecting sort tag listener due to edit context buttons not found"
-        );
-    } catch (err) {
-      console.log(err);
-    }
-  }
   if (pageInfo["page"] === "bookmark") {
     try {
       // <section> contain tags and images
@@ -1073,32 +1082,38 @@ async function initializeVariables() {
       tag = props.tag;
       currentWorks = props.works;
 
-      injectSortTagsInEditArtworkTagsMenu();
-      // monitoring page change, tag change
+      // monitoring url change to update tag (current work might not update on tag changing)
+      let lastURL = location.href;
+      new MutationObserver(() => {
+        if (location.href !== lastURL) {
+          lastURL = location.href;
+          tag =
+            Object.values(el)[0]["return"]["memoizedProps"]["children"][3][
+              "props"
+            ]["tag"];
+          if (!tag || tag === "未分類") {
+            const removeTagButton =
+              document.querySelector("#remove_tag_button");
+            if (removeTagButton && removeTagButton.style.display === "flex") {
+              removeTagButton.style.display = "none";
+            }
+          }
+          if (DEBUG) console.log("Current Tag:", tag);
+        }
+      }).observe(document, {
+        subtree: true,
+        childList: true,
+      });
+
+      // monitoring current works change
       const propsObserver = new MutationObserver(() => {
-        tag =
-          Object.values(el)[0]["return"]["memoizedProps"]["children"][3][
-            "props"
-          ]["tag"];
         currentWorks =
           Object.values(el)[0]["return"]["memoizedProps"]["children"][3][
             "props"
           ]["works"];
-        if (!tag || tag === "未分類") {
-          const removeTagButton = document.querySelector("#remove_tag_button");
-          if (removeTagButton && removeTagButton.style.display === "flex") {
-            removeTagButton.style.display = "none";
-          }
-        }
-        injectSortTagsInEditArtworkTagsMenu();
-
-        if (DEBUG)
-          console.log(
-            "Current Tag:",
-            tag,
-            currentWorks.length && currentWorks[0]["alt"]
-          );
+        if (DEBUG) console.log("Update current works", currentWorks[0]["alt"]);
       });
+      // observe the works content
       propsObserver.observe(await waitForDom("ul.sc-9y4be5-1.jtUPOE"), {
         childList: true,
       });
@@ -1147,7 +1162,7 @@ function injectElements() {
   clearTagsButton.className = "sc-1ij5ui8-0 QihHO sc-13ywrd6-7 tPCje";
   clearTagsButton.setAttribute("aria-disabled", "true");
   clearTagsButton.setAttribute("role", "button");
-  clearTagsButton.innerHTML = `<div aria-disabled="true" class="sc-4a5gah-0 gbA-dUP">
+  clearTagsButton.innerHTML = `<div aria-disabled="true" class="sc-4a5gah-0 jbzOgz">
             <div class="sc-4a5gah-1 kHyYuA">
               ${clearTagsText}
             </div>
@@ -1180,6 +1195,7 @@ function injectElements() {
 
     const editButtonContainer = document.querySelector(".sc-1dg0za1-6.fElfQf");
     if (editButtonContainer) {
+      console.log("inject edit button");
       editButtonContainer.style.justifyContent = "initial";
       editButtonContainer.firstElementChild.style.marginRight = "auto";
       editButtonContainer.insertBefore(
@@ -1265,6 +1281,7 @@ async function updateSuggestion(
     while (suggestionEl.firstElementChild) {
       suggestionEl.removeChild(suggestionEl.firstElementChild);
     }
+    if (keyword.toUpperCase() === "R-18") return;
 
     let candidates = [];
     if (searchDict) {
@@ -1300,7 +1317,7 @@ async function updateSuggestion(
       candidates = res["candidates"].filter((i) => i["tag_name"] !== keyword);
     }
     if (candidates.length) {
-      for (let candidate of candidates) {
+      for (let candidate of candidates.filter((_, i) => i < 5)) {
         const candidateButton = document.createElement("button");
         candidateButton.type = "button";
         candidateButton.className = "btn p-0 mb-1 d-block";
@@ -1406,7 +1423,7 @@ function setElementProperties() {
   // search with suggestion
   const searchInput = document.querySelector("#search_value");
   const searchSuggestion = document.querySelector("#search_suggestion");
-  searchInput.addEventListener("keyup", (evt) =>
+  searchInput.addEventListener("keyup", (evt) => {
     updateSuggestion(
       evt,
       searchSuggestion,
@@ -1421,8 +1438,8 @@ function setElementProperties() {
           keywordsArray.splice(keywordsArray.length - 1, 1, newKeyword);
           searchInput.value = keywordsArray.join(" ");
         })
-    )
-  );
+    ).catch(console.log);
+  });
 
   let synonymDictKeys = Object.keys(synonymDict);
   if (synonymDictKeys.length) {
@@ -1443,9 +1460,10 @@ function setSynonymEventListener() {
   const buttons = document
     .querySelector("#synonym_buttons")
     .querySelectorAll("button");
+  const lineHeight = parseInt(getComputedStyle(preview).lineHeight);
 
   const labelSuggestion = document.querySelector("#label_suggestion");
-  targetTag.addEventListener("keyup", (evt) =>
+  targetTag.addEventListener("keyup", (evt) => {
     updateSuggestion(
       evt,
       labelSuggestion,
@@ -1454,14 +1472,32 @@ function setSynonymEventListener() {
         candidateButton.addEventListener("click", () => {
           alias.value = alias.value + " " + candidate["tag_name"];
         })
-    )
-  );
+    ).catch(console.log);
+  });
+  targetTag.addEventListener("keyup", (evt) => {
+    // scroll to modified entry
+    const lines = preview.innerText.split("\n");
+    let lineNum = lines.findIndex((line) => line.includes(evt.target.value));
+    if (lineNum < 0) return;
+    if (lines[lineNum].startsWith("\t")) lineNum--;
+    if (lineHeight * lineNum) preview.scrollTop = lineHeight * lineNum;
+  });
+  targetTag.addEventListener("blur", (evt) => {
+    if (Object.keys(synonymDict).includes(evt.target.value)) {
+      const value = synonymDict[evt.target.value];
+      if (value.length > 4) alias.value = value.join("\n");
+      else alias.value = value.join(" ");
+    }
+  });
 
   // update preview
   function updatePreview(synonymDict) {
     let synonymString = "";
     for (let key of Object.keys(synonymDict)) {
-      synonymString += key + "\n\t" + synonymDict[key].join(" ") + "\n\n";
+      let value = synonymDict[key];
+      if (value.length > 4) value = value.join("\n\t");
+      else value = value.join(" ");
+      synonymString += key + "\n\t" + value + "\n\n";
     }
     preview.innerText = synonymString;
   }
@@ -1521,7 +1557,7 @@ function setSynonymEventListener() {
       .split(" ")[0]
       .replace("（", "(")
       .replace("）", ")");
-    navigator.clipboard.writeText(targetValue).catch(console.log);
+    // navigator.clipboard.writeText(targetValue).catch(console.log);
     const aliasValue = alias.value;
     if (aliasValue === "") {
       // delete
@@ -1535,9 +1571,9 @@ function setSynonymEventListener() {
       }
     } else {
       const value = aliasValue
-        .trim()
-        .split(" ")
-        .filter((i) => i);
+        .split(/[\s\r\n]/)
+        .filter((i) => i)
+        .map((i) => i.trim());
       if (synonymDict[targetValue]) {
         synonymDict[targetValue] = value; // update
       } else {
@@ -1561,8 +1597,13 @@ function setSynonymEventListener() {
       const filter = evt.target.value;
       if (filter.length) {
         if (filter === " ") return;
-        const filteredKeys = Object.keys(synonymDict).filter((key) =>
-          key.toUpperCase().includes(filter.toUpperCase())
+        const filteredKeys = Object.keys(synonymDict).filter(
+          (key) =>
+            key.toUpperCase().includes(filter.toUpperCase()) ||
+            synonymDict[key]
+              .join("，")
+              .toUpperCase()
+              .includes(filter.toUpperCase())
         );
         const newDict = {};
         for (let key of filteredKeys) {
