@@ -1385,7 +1385,7 @@ function setElementProperties() {
 
   // default value
   const addFirst = document.querySelector("#label_add_first");
-  addFirst.value = getValue("addFirst", "true");
+  addFirst.value = getValue("addFirst", "false");
   addFirst.onchange = () => setValue("addFirst", addFirst.value);
 
   const tagToQuery = document.querySelector("#label_tag_query");
