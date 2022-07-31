@@ -10,9 +10,9 @@
 
 - If there is no intersection, the script will skip the image. Or you can configure the script to add the first tag of the image by default.
 
-- You might also search your bookmarks by your custom tags (see below)
+- You might also search your bookmarks by your custom tag
 
-- The script is implemented by Pixiv Web APIs. Please open an new issue at GitHub if it was outdated.
+- The script is implemented by Pixiv Web APIs. Please open a new issue at GitHub if it was outdated.
 
 ## For First-time User
 
@@ -20,18 +20,33 @@
   
 ![step1](./assets/01.png)
 
-- In the bookmark detail page, you can choose some tags from ***Tags for this work***, then click ***Edit Bookmark*** to save
-- Here we take [新世紀エヴァンゲリオン] as an example
+- There are several ways to build up your bookmarked tags pool from scratch before using the script
+
+1. In the bookmarks page, hovering on the thumbnail and clicking the ***Edit tags*** button. you will find the ***Creat a tag*** button in the dialog. After saving all your changes, those created tags will be saved to your bookmarked tags.
+
+![step2.1](./assets/011.png)
+
+2. In the bookmark detail page, you can choose some tags from ***Tags for this work***, and then click ***Edit Bookmark*** to save
   
-![step2](./assets/02.png)
+![step2.2](./assets/02.png)
+
+3. Let the script grabs the first tag from the work to build up your bookmarked tags pool. In this case you should make sure that in the advanced settings of the script ***add the first tag*** option is set to ***Yes***. You are free to remove those unwanted tags later, and don't forget to reset the value to ***No*** after you tags pool has been settled.
+
+![step2.3](./assets/012.png)
+
+4. Use the synonym dictionary of the script. All the ***user tags*** (i.e. the target tag) will be added to your bookmarked tags pool. See below to find out how to use the synonym dict. 
+
+## Start Labeling
 
 - In the Bookmarks Page, click ***Label*** button to open the script page
-- For first time user, just click ***Start*** to run
+- For first time user, if you already have some bookmarked tags, just click ***Start*** to run
+- Or you might need to add some tags to your pool as aforementioned
+- Assume that we already have the tag [新世紀エヴァンゲリオン] being bookmarked
   
 ![step3](./assets/03.png)
 
 - Wait for the progress bar until it reaches the end.
-- Refresh the page and we will find that all images with the tag [新世紀エヴァンゲリオン] have been categorized
+- Refresh the page, and we will find that all images with the tag [新世紀エヴァンゲリオン] have been categorized
 
 ![step3](./assets/04.png)
 
@@ -39,17 +54,20 @@
 
 - Sometimes the author does not provide the so-called *official* tag for the artwork. This inconsistency makes it hard for us to do labeling. 
 - Here we introduce the synonym dictionary that stores tag-alias pairs. All alias for a tag will be regarded as the same as the tag itself.
-- For example, the tags of the image contains [eva] instead of [新世紀エヴァンゲリオン], so that it won't be categorized into [新世紀エヴァンゲリオン].
+- For example, the tags of the image contains [EVA] instead of [新世紀エヴァンゲリオン], so that it won't be categorized into [新世紀エヴァンゲリオン].
 
 ![step4](./assets/05.png)
 
 - Open the script page and we wil find the ***Edit Dict*** button.
-- The ***Target Tag*** is the one that you want it in your bookmarks (eg: 新世紀エヴァンゲリオン); and the ***Alias*** are the tags that you want them to be regarded as the target tag (eg: eva, evangelion).
-- Note that all alias should be delimited by spaces
+- The ***Target Tag*** is the one that you want it in your bookmark tags pool (eg: 新世紀エヴァンゲリオン); and the ***Alias*** are the tags that you want them to be regarded as the target tag (eg: eva, evangelion).
+- Note that all alias should be delimited by spaces, or line breakers
+- Click ***Update Tag*** to save the user tag and alias into the dictionary. If the alias is empty the user tag will be removed
+- You can export the dictionary to local disk as a backup
+- To modify the alias, enter the user tag value and click ***Load Tag*** to load the alias value from the dict (or use tab key), and click ***Update Tag*** to save
 
 ![step5](./assets/06.png)
 
-- After executing the script again, all images with either the target tag, or the alias tag have been categorized to your target tag.
+- After executing the script again, all uncategorized images with either the target tag, or the alias tag now have been categorized to your target tag.
 
 ![step6](./assets/07.png)
 
@@ -58,12 +76,6 @@
 - Take Soryu Asuka Langley as an instance. She has at least four kinds of appellations like 惣流・アスカ・ラングレー/式波・アスカ・ラングレー/そうりゅう・アスカ・ラングレー/しきなみ・アスカ・ラングレー. Now we can set ***asuka*** as the target tag, and those Japanese names as the alias.
 
 ![step7](./assets/08.png)
-
-## Search Your Bookmarks
-
-- You can also search your bookmarks with this script
-- Click ***Search*** Button to open the search page, and search with the keyword [asuka], which is the target tag we have registered before
-- The script will return all images with tag [asuka] or [asuka]'s alias.
 
 ![step7](./assets/09.png)
   
@@ -78,29 +90,33 @@
 
 - Auto Labeling For
   - By default, the script does label for those uncategorized images
-  - You may want to re-label all your favorite artworks when some newly-added labels were not applied to those former images.
-  - For example, if you just add [ayanami_rei] to your user tags, you can choose [新世紀エヴァンゲリオン] and re-run the script. Therefore, all images with [新世紀エヴァンゲリオン] tag will be searched again.
+  - You may want to re-label all your favorite artworks when some newly-added tags were not applied to those former images.
+  - For example, if you just add [ayanami_rei] to your user tags, you can choose [新世紀エヴァンゲリオン] and re-run the script. Therefore, all images with [新世紀エヴァンゲリオン] tag will be searched and labeled again.
  
 - Whether the first tag will be added if there is not any match
-  - Design for the cold start
+  - Design for a cold start
   - It works when the intersection of your existing bookmark tags and tags of the work is empty, then the first tag of the image will be added
 
 - Publication Type for Labeling
   - Pixiv stores public and private bookmarks in different places, and they have independent tags
   - By default, the script only does label for public bookmarks
 
-- Whether the previous custom bookmark tags will be retained?
-  - It works when you are not labeling uncategorized images
-  - Since the script takes the intersection of your tags and tags of the image, if the intersection is empty, and you don't choose to retain previous tags, they will be overwritten.
-  - If you always manage your bookmarks with the script, this option makes no difference
+- Whether NSFW works will be labeled as #R-18?
+  - By default, the script will categorize those NSFW works into the R-18 tag
+  - If you don't want the tag, set it as *No* before starting
 
+## Search Your Bookmarks
+
+- You can also search your bookmarks with this script
+- Click ***Search*** Button to open the search page, and search with the keyword [asuka], which is the target tag we have registered before
+- The script will return all images with tag [asuka] or [asuka]'s alias.
   
 ## FAQ
 
 - The ***Label*** button cannot be found on the website
   - Firstly make sure that you are at the correct place, and try to **refresh** before the next step
     - The new version of Pixiv UI uses React to update the page without refreshing, so the button might not be loaded
-  - Generally, the path should be like https://www.pixiv.net/users/{YOUR UID}/bookmarks/artworks or https://www.pixiv.net/bookmark.php
+  - Generally, the correct path should be like https://www.pixiv.net/users/{YOUR UID}/bookmarks/artworks or https://www.pixiv.net/bookmark.php
   - If the path is correct, and the button is still nowhere to find, it is probably because Pixiv updates its UI. Inform me at GitHub by opening an issue
 
 - The script cannot work and alert a prompt
@@ -130,7 +146,7 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
 
 - 如果已收藏标签与作品自带标签没有交集，将会跳过该作品（或可选地自动添加作品首个标签）
 
-- 脚本提供搜索收藏夹功能，具体使用方法请参考下文说明
+- 脚本提供搜索收藏夹功能，可以对标签和标题进行搜索
 
 - 本脚本使用Pixiv的网页API进行操作，可能会出现API过时等情况，如果出现错误请在Github提交issue
 
@@ -140,13 +156,28 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
   
 ![step1](./assets/01.png)
 
-- 在作品收藏详情页，选择一些作品已有的标签，或手动输入需要的标签，保存结果
-- 这里我们选择【新世紀エヴァンゲリオン】并保存，这样就成功添加了一个***用户收藏标签***
+- 在使用脚本前，我们有数种方法可以添加*用户已收藏的标签*
+
+1. 在收藏夹页，悬停在图片缩略图上并点击左下角的***编辑标签***按钮，在对话框中可以找到***添加标签***按钮。在保存设置之后，所有创建的标签将被加入用户已收藏标签。
+
+![step2.1](./assets/011.png)
+
+2. 在作品收藏详情页，选择一些作品已有的标签，或手动输入需要的标签，保存结果
 
 ![step2](./assets/02.png)
 
+3. 使用脚本自动添加标签。需要在高级设置中选择***自动添加首个标签***并设置为***是***。随后可以随意移除不需要的标签，但之后使用时请记得将此设置重置为***否***来避免增加过多不需要的标签。
+
+![step2.3](./assets/012.png)
+
+4. 使用脚本的同义词词典功能。词典中所有的目标标签（用户标签）将会被视为是用户已收藏的标签。关于词典的使用方法请见下文
+
+## 开始使用
+
 - 在管理收藏页面，点击【添加标签】打开脚本页面
-- 首次使用无需设置，直接点击开始
+- 如果在此前已经设置好用户收藏标签，直接点击开始即可使用
+- 否则需要按前文所述选择一种方式来添加一些用户收藏标签
+- 假设我们已经添加了【新世紀エヴァンゲリオン】标签
 
 ![step3](./assets/03.png)
 
@@ -163,10 +194,11 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
 
 - 在自动标签页面，点击***编辑词典***展开选项
 - 目标标签，指的是您希望保存在您收藏夹中的用户标签的名字，例如：新世紀エヴァンゲリオン。同义词则是那些您希望脚本将其识别为目标标签的作品本身提供的标签，例如：EVA
+- 所有的同义词之间使用空格或回车分隔
 - 点击***更新标签***将输入的内容加载到词典中，然后将会在下方的预览区域展示出来。如果您在同义词一栏空白的情况下更新，将会把目标标签从词典中删除
 - 在制作完词典后，可以导出词典到本地进行备份
 - 下次使用时，会自动记忆上次使用的词典，也可以从本地导入新的词典
-- ***加载标签***按钮用于从词典中载入标签对应的同义词，在***目标标签***一栏中输入标签名，点击***加载标签***即可。当然也可以手动复制粘贴
+- ***加载标签***按钮用于从词典中载入标签对应的同义词，在***目标标签***一栏中输入标签名，点击***加载标签***即可，直接按Tab键也有同样的效果
   
 ![step5](./assets/06.png)
 
@@ -178,13 +210,6 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
   - 注意自定义的目标标签中不能有空格，因为Pixiv使用空格作为标签间的分隔符
 
 ![step7](./assets/08.png)
-
-## 搜索收藏夹标签
-
-- 除了自动标签以外，本脚本还提供搜索收藏夹功能，便于更快地在大量的收藏找到需要的图片。
-- 点击【搜索图片】打开搜索页，我们可以用刚刚设置的目标标签【asuka】进行搜索，脚本会搜索所有匹配同义词标签（此处为：明日香）的作品并返回。这样可以快速的从收藏夹中按照人物名或其他特征快速搜索到指定作品，而不需要继续细分该标签。
-- 
-  ![step7](./assets/09.png)
 
 ## 示例
 
@@ -198,26 +223,31 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
 - 以下为脚本提供的可选配置的说明
 
 - 自动标签范围
-  + 脚本的工作范围，默认为对【未分类作品】进行自动标签
-  + 可以使用下拉框选择其他的标签范围，使用场景例如下：
-  + 用户收藏标签中新增了角色【绫波丽】，此时可以选择【新世紀エヴァンゲリオン】标签重新运行脚本，这样【新世紀エヴァンゲリオン】标签下所有含有【绫波丽】的图片都将被打上标签
+  -脚本的工作范围，默认为对【未分类作品】进行自动标签
+  -可以使用下拉框选择其他的标签范围，使用场景例如下：
+  -用户收藏标签中新增了角色【绫波丽】，此时可以选择【新世紀エヴァンゲリオン】标签重新运行脚本，这样【新世紀エヴァンゲリオン】标签下所有含有【绫波丽】的图片都将被打上标签
 
 - 无匹配时是否自动添加首个标签
-  + 用于没有任何***用户收藏标签***的账户进行冷启动
-  + 作用为当该作品的标签与已收藏的标签**没有交集**时，默认添加该作品的第一个标签
+  -用于没有任何***用户收藏标签***的账户进行冷启动
+  -作用为当该作品的标签与已收藏的标签**没有交集**时，默认添加该作品的第一个标签
 
 - 作品公开类型
-  + pixiv的公开和非公开作品使用两套不同的收藏体系，标签列表也是独立的
-  + 默认为对公开收藏的作品进行自动标签
+  - pixiv的公开和非公开作品使用两套不同的收藏体系，标签列表也是独立的
+  - 默认为对公开收藏的作品进行自动标签
   
-- 是否保留之前的自定义标签
-  + 选择对已经添加了标签的作品再次进行自动标签的工作模式：覆盖模式/添加模式
-  + 如果一直使用此脚本管理标签，则没有区别
+- 是否为非全年龄作品标记#R-18标签
+  - 默认会将非全年龄向作品归入R-18标签
+  - 如果不需要该标签可以设置为忽略
+  
+## 搜索收藏夹标签
 
+- 除了自动标签以外，本脚本还提供搜索收藏夹功能，便于更快地在大量的收藏找到需要的图片。
+- 点击【搜索图片】打开搜索页，我们可以用刚刚设置的目标标签【asuka】进行搜索，脚本会搜索所有匹配同义词标签（此处为：明日香）的作品并返回。这样可以快速的从收藏夹中按照人物名或其他特征快速搜索到指定作品，而不需要继续细分该标签。
 - 搜索收藏夹时的标签匹配模式
-  + 模糊匹配：作品标签部分匹配搜索内容即可
-  + 精确匹配：作品的某个标签与搜索内容相同
+  - 模糊匹配：作品标签部分匹配搜索内容即可
+  - 精确匹配：作品的某个标签与搜索内容相同
 
+![step7](./assets/09.png)
 
 ## 常见问题
 

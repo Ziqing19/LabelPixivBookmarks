@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      4.8
+// @version      4.10
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -349,7 +349,7 @@ Tag ${tag} Removed!`;
   }, 1000);
 }
 
-const DEBUG = true;
+const DEBUG = false;
 async function handleLabel(evt) {
   evt.preventDefault();
 
@@ -358,12 +358,12 @@ async function handleLabel(evt) {
   const publicationType = document.querySelector(
     "#label_publication_type"
   ).value;
-  const retainTag = document.querySelector("#label_retain_tag").value;
+  const labelR18 = document.querySelector("#label_r18").value;
 
   console.log("Label Configuration:");
   console.log(
-    `addFirst: ${addFirst === "true"}; tagToQuery: ${tagToQuery}; retainTag: ${
-      retainTag === "true"
+    `addFirst: ${addFirst === "true"}; tagToQuery: ${tagToQuery}; labelR18: ${
+      labelR18 === "true"
     }; publicationType: ${publicationType}`
   );
 
@@ -449,17 +449,19 @@ async function handleLabel(evt) {
           .map((workTag) => {
             for (let aliasName of Object.keys(synonymDict)) {
               if (
-                synonymDict[aliasName].toUpperCase().includes(workTag) ||
                 synonymDict[aliasName]
                   .toUpperCase()
-                  .includes(workTag.split("(")[0])
+                  .includes(workTag.toUpperCase()) ||
+                synonymDict[aliasName]
+                  .toUpperCase()
+                  .includes(workTag.split("(")[0].toUpperCase())
               )
                 return aliasName;
             }
           })
           .filter((i) => i)
       );
-      if (work["xRestrict"]) intersection.push("R-18");
+      if (work["xRestrict"] && labelR18 === "true") intersection.push("R-18");
       // remove duplicate
       intersection = Array.from(new Set(intersection));
 
@@ -467,8 +469,6 @@ async function handleLabel(evt) {
       const prevTags = bookmarks["bookmarkTags"][bookmarkId] || [];
 
       let removeTags = [];
-      if (retainTag === "false")
-        removeTags = prevTags.filter((tag) => !intersection.includes(tag));
       const addTags = intersection.filter((tag) => !prevTags.includes(tag));
 
       if (!intersection.length && !prevTags.length) {
@@ -633,19 +633,12 @@ async function handleSearch(evt) {
           keywordArray.push(...el);
           keywordArray.push(...synonymDict[el[1]]);
         }
-        console.log(
-          work.title,
+        if (
           keywordArray.some(
             (kw) =>
-              mergedTags.some((tag) =>
-                tag.toUpperCase().includes(kw.toUpperCase())
-              ),
-            keywordArray
-          )
-        );
-        if (
-          keywordArray.some((kw) =>
-            mergedTags.toUpperCase().includes(kw.toUpperCase())
+              work.title.toUpperCase().includes(kw.toUpperCase()) ||
+              work["userName"].toUpperCase().includes(kw.toUpperCase()) ||
+              mergedTags.toUpperCase().includes(kw.toUpperCase())
           )
         )
           return true;
@@ -684,7 +677,7 @@ async function handleSearch(evt) {
           </a>
        </div>
        <div class="mb-4">
-        <a href=${"/users" + work["userId"]}  target="_blank" rel="noreferrer"
+        <a href=${"/users/" + work["userId"]}  target="_blank" rel="noreferrer"
           style="rgba(0, 0, 0, 0.64)">
           <img
             src=${work["profileImageUrl"]} alt="profile" class="rounded-circle"
@@ -836,18 +829,14 @@ function createModalElements() {
               </select>
             </div>
             <div class="mb-4">
-              <label class="form-label fw-light" for="label_retain_tag">
-                是否保留之前的自定义标签
+              <label class="form-label fw-light" for="label_r18">
+                是否为非全年龄作品标记#R-18标签
                 <br />
-                如果之前并非完全使用此脚本管理标签，并且没有设置同义词词典，将会覆盖掉自定义设置的标签
-                <br />
-                Whether the previous custom bookmark tags will be retained?
-                <br />
-                If you are not using the script to take fully control of your tags and haven't set your synonym dictionary, the custom tags will be overwritten.
+                Whether NSFW works will be labeled as #R-18
               </label>
-              <select id="label_retain_tag" class="form-select">
-                <option value="true">保留 / Yes</option>
-                <option value="false">舍弃 / No</option>
+              <select id="label_r18" class="form-select">
+                <option value="true">标记 / Yes</option>
+                <option value="false">忽略 / No</option>
               </select>
             </div>
           </div>
@@ -1069,7 +1058,7 @@ async function initializeVariables() {
         if (props["tagList"] && props["works"]) break;
         else await delay(200);
         props =
-          Object.values(el)[0]["return"]["memoizedProps"]["children"][3][
+          Object.values(el)[0]["return"]["memoizedProps"]["children"][2][
             "props"
           ];
       }
@@ -1088,7 +1077,7 @@ async function initializeVariables() {
         if (location.href !== lastURL) {
           lastURL = location.href;
           tag =
-            Object.values(el)[0]["return"]["memoizedProps"]["children"][3][
+            Object.values(el)[0]["return"]["memoizedProps"]["children"][2][
               "props"
             ]["tag"];
           if (!tag || tag === "未分類") {
@@ -1097,6 +1086,13 @@ async function initializeVariables() {
             if (removeTagButton && removeTagButton.style.display === "flex") {
               removeTagButton.style.display = "none";
             }
+          } else {
+            const removeTagButtonPrompt =
+              document.querySelector("#remove_tag_prompt");
+            if (removeTagButtonPrompt)
+              removeTagButtonPrompt.innerText = lang.includes("zh")
+                ? "删除标签 " + tag
+                : "Delete Tag " + tag;
           }
           if (DEBUG) console.log("Current Tag:", tag);
         }
@@ -1108,7 +1104,7 @@ async function initializeVariables() {
       // monitoring current works change
       const propsObserver = new MutationObserver(() => {
         currentWorks =
-          Object.values(el)[0]["return"]["memoizedProps"]["children"][3][
+          Object.values(el)[0]["return"]["memoizedProps"]["children"][2][
             "props"
           ]["works"];
         if (DEBUG) console.log("Update current works", currentWorks[0]["alt"]);
@@ -1195,7 +1191,6 @@ function injectElements() {
 
     const editButtonContainer = document.querySelector(".sc-1dg0za1-6.fElfQf");
     if (editButtonContainer) {
-      console.log("inject edit button");
       editButtonContainer.style.justifyContent = "initial";
       editButtonContainer.firstElementChild.style.marginRight = "auto";
       editButtonContainer.insertBefore(
@@ -1405,9 +1400,9 @@ function setElementProperties() {
   publicationType.onchange = () =>
     setValue("publicationType", publicationType.value);
 
-  const retainTag = document.querySelector("#label_retain_tag");
-  retainTag.value = getValue("retainTag", "false");
-  retainTag.onchange = () => setValue("retainTag", retainTag.value);
+  const labelR18 = document.querySelector("#label_r18");
+  labelR18.value = getValue("labelR18", "true");
+  labelR18.onchange = () => setValue("labelR18", labelR18.value);
 
   // search bookmark form
   const searchForm = document.querySelector("#search_form");
