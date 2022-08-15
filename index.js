@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      4.10
+// @version      4.11
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -19,7 +19,7 @@
 
 // ==/UserScript==
 
-let uid, token, lang, userTags, synonymDict, pageInfo, currentWorks, tag;
+let uid, token, lang, userTags, synonymDict, pageInfo;
 
 Array.prototype.toUpperCase = function () {
   return this.map((i) => i.toUpperCase());
@@ -144,6 +144,7 @@ function sortByParody(array) {
 function loadResources() {
   function cssElement(url) {
     const link = document.createElement("link");
+    link.id = "bootstrapCSS";
     link.href = url;
     link.rel = "stylesheet";
     link.type = "text/css";
@@ -151,8 +152,8 @@ function loadResources() {
   }
   function jsElement(url) {
     const script = document.createElement("script");
+    script.id = "bootstrapJS";
     script.src = url;
-    script.crossOrigin = "anonymous";
     return script;
   }
 
@@ -161,6 +162,7 @@ function loadResources() {
 
   // overwrite bootstrap global box-sizing style
   const style = document.createElement("style");
+  style.id = "LB_overwrite";
   style.innerHTML =
     "*,::after,::before { box-sizing: content-box; } .form-control,.form-select,.row>* { box-sizing: border-box; }";
   document.head.appendChild(style);
@@ -169,7 +171,7 @@ function loadResources() {
 const bookmarkBatchSize = 100;
 async function fetchBookmarks(uid, tagToQuery, offset, publicationType) {
   const bookmarksRaw = await fetch(
-    `https://www.pixiv.net/ajax/user/${uid}` +
+    `/ajax/user/${uid}` +
       `/illusts/bookmarks?tag=${tagToQuery}` +
       `&offset=${offset}&limit=${bookmarkBatchSize}&rest=${publicationType}`
   );
@@ -185,7 +187,7 @@ Fail to fetch user bookmarks\n` + decodeURI(bookmarksRes.message)
 
 async function updateBookmarkTags(bookmarkIds, tags, removeTags) {
   if (tags && tags.length) {
-    await fetch("https://www.pixiv.net/ajax/illusts/bookmarks/add_tags", {
+    await fetch("/ajax/illusts/bookmarks/add_tags", {
       headers: {
         accept: "application/json",
         "content-type": "application/json; charset=utf-8",
@@ -197,7 +199,7 @@ async function updateBookmarkTags(bookmarkIds, tags, removeTags) {
     await delay(500);
   }
   if (removeTags && removeTags.length) {
-    await fetch("https://www.pixiv.net/ajax/illusts/bookmarks/remove_tags", {
+    await fetch("/ajax/illusts/bookmarks/remove_tags", {
       headers: {
         accept: "application/json",
         "content-type": "application/json; charset=utf-8",
@@ -225,18 +227,20 @@ The tags of work(s) you've selected will be removed (become uncategorized). Is t
     return;
 
   window.runFlag = true;
-  const works = selected.map((el) => {
-    const middleChild = Object.values(
-      el.parentNode.parentNode.parentNode.parentNode
-    )[0]["child"];
+  const works = selected
+    .map((el) => {
+      const middleChild = Object.values(
+        el.parentNode.parentNode.parentNode.parentNode
+      )[0]["child"];
 
-    const work = middleChild["memoizedProps"]["work"];
-    const bookmarkId = middleChild["memoizedProps"]["bookmarkId"];
-    work.associatedTags =
-      middleChild["child"]["memoizedProps"]["associatedTags"];
-    work.bookmarkId = bookmarkId;
-    return work;
-  });
+      const work = middleChild["memoizedProps"]["work"];
+      const bookmarkId = middleChild["memoizedProps"]["bookmarkId"];
+      work.associatedTags =
+        middleChild["child"]["memoizedProps"]["associatedTags"];
+      work.bookmarkId = bookmarkId;
+      return work;
+    })
+    .filter((work) => work.associatedTags.length);
 
   const modal = document.querySelector("#clear_tags_modal");
   let instance = bootstrap.Modal.getInstance(modal);
@@ -249,7 +253,7 @@ The tags of work(s) you've selected will be removed (become uncategorized). Is t
   const total = works.length;
   for (let index = 1; index <= total; index++) {
     const work = works[index - 1];
-    const url = "https://www.pixiv.net/en/artworks/" + work.id;
+    const url = "https://www.pixiv.net/artworks/" + work.id;
     console.log(index, work.title, work.id, url);
     if (DEBUG) console.log(work);
 
@@ -278,6 +282,7 @@ Tags Removed!`;
 
 async function removeCurrentTag(evt) {
   evt.preventDefault();
+  const { tag, restrict } = await updateWorkInfo();
   if (
     !tag ||
     tag === "未分類" ||
@@ -290,7 +295,7 @@ The tag ${tag} will be removed and works of ${tag} will keep bookmarked. Is this
   const modal = document.querySelector("#clear_tags_modal");
   let instance = bootstrap.Modal.getInstance(modal);
   if (!instance) instance = new bootstrap.Modal(modal);
-  instance.show();
+  await instance.show();
 
   const prompt = document.querySelector("#clear_tags_prompt");
   const progressBar = document.querySelector("#clear_tags_progress_bar");
@@ -300,7 +305,12 @@ The tag ${tag} will be removed and works of ${tag} will keep bookmarked. Is this
     totalBookmarks = [],
     bookmarks = { works: [] };
   do {
-    bookmarks = await fetchBookmarks(uid, tag, offset, "show");
+    bookmarks = await fetchBookmarks(
+      uid,
+      tag,
+      offset,
+      restrict ? "hide" : "show"
+    );
     total = bookmarks["total"];
     offset += bookmarkBatchSize;
     offset = Math.min(offset, total);
@@ -345,7 +355,9 @@ Tag ${tag} Removed!`;
   setTimeout(() => {
     instance.hide();
     if (window.runFlag)
-      window.location.href = `https://www.pixiv.net/users/${uid}/bookmarks/artworks`;
+      window.location.href = `https://www.pixiv.net/users/${uid}/bookmarks/artworks?rest=${
+        restrict ? "hide" : "show"
+      }`;
   }, 1000);
 }
 
@@ -355,9 +367,9 @@ async function handleLabel(evt) {
 
   const addFirst = document.querySelector("#label_add_first").value;
   const tagToQuery = document.querySelector("#label_tag_query").value;
-  const publicationType = document.querySelector(
-    "#label_publication_type"
-  ).value;
+  const publicationType = (await updateWorkInfo())["restrict"]
+    ? "hide"
+    : "show";
   const labelR18 = document.querySelector("#label_r18").value;
 
   console.log("Label Configuration:");
@@ -403,7 +415,7 @@ async function handleLabel(evt) {
     if (DEBUG) console.log("Bookmarks", bookmarks);
     if (!total) total = bookmarks.total;
     for (let work of bookmarks["works"]) {
-      const url = "https://www.pixiv.net/en/artworks/" + work.id;
+      const url = "https://www.pixiv.net/artworks/" + work.id;
       if (DEBUG) console.log(index, work.title, work.id, url);
       index++;
       // ---- means unavailable, hidden or deleted by author
@@ -817,17 +829,6 @@ function createModalElements() {
                 <option value="true">是 / Yes</option>
               </select>
             </div>
-            <div class="mb-3">
-              <label class="form-label fw-light" for="label_publication_type">
-                作品公开类型
-                <br />
-                Publication Type for Labeling
-              </label>
-              <select id="label_publication_type" class="form-select select-custom-tags">
-                <option value="show">公开 / Public</option>
-                <option value="hide">私密 / Private</option>
-              </select>
-            </div>
             <div class="mb-4">
               <label class="form-label fw-light" for="label_r18">
                 是否为非全年龄作品标记#R-18标签
@@ -973,9 +974,9 @@ function createModalElements() {
   body.appendChild(clearBookmarkTagsModal);
 }
 
-async function userTagsPolyfill() {
+async function fetchUserTags() {
   const tagsRaw = await fetch(
-    "https://www.pixiv.net/ajax/user/" + uid + "/illusts/bookmark/tags"
+    `/ajax/user/${uid}/illusts/bookmark/tags?lang=${lang}`
   );
   const tagsObj = await tagsRaw.json();
   if (tagsObj.error === true)
@@ -989,7 +990,7 @@ async function userTagsPolyfill() {
   for (let obj of tagsObj.body.public) {
     userTagsSet.add(decodeURI(obj.tag));
   }
-  for (let obj of tagsObj.body.private) {
+  for (let obj of tagsObj.body["private"]) {
     userTagsSet.add(decodeURI(obj.tag));
   }
   userTagsSet.delete("未分類");
@@ -999,7 +1000,7 @@ async function userTagsPolyfill() {
 async function fetchTokenPolyfill() {
   // get token
   const userRaw = await fetch(
-    "https://www.pixiv.net/bookmark_add.php?type=illust&illust_id=83540927"
+    "/bookmark_add.php?type=illust&illust_id=83540927"
   );
   if (!userRaw.ok) {
     console.log(`获取身份信息失败
@@ -1012,18 +1013,27 @@ async function fetchTokenPolyfill() {
   return userRes.slice(tokenPos, tokenEnd).split('"')[1];
 }
 
-async function initializeVariables() {
-  synonymDict = getValue("synonymDict", {});
-  if (Object.keys(synonymDict).length) setValue("synonymDict", synonymDict);
+async function updateWorkInfo() {
+  const el = await waitForDom("section.sc-jgyytr-0.buukZm");
+  let workInfo = {};
+  for (let i = 0; i < 100; i++) {
+    workInfo = Object.values(el)[0]["memoizedProps"]["children"][2]["props"];
+    if (Object.keys(workInfo).length) break;
+    else await delay(200);
+  }
+  if (DEBUG) console.log(workInfo);
+  return workInfo;
+}
 
+async function initializeVariables() {
   try {
-    const client = Object.values(
-      document.querySelector(".sc-gulj4d-0.eRjnRp").firstChild
-    )[0]["return"]["return"]["memoizedProps"]["client"];
-    if (DEBUG) console.log(client);
-    uid = client["userId"];
-    token = client["token"];
-    lang = client["lang"];
+    pageInfo = Object.values(document.querySelector(".sc-x1dm5r-0"))[0][
+      "return"
+    ]["return"]["memoizedProps"];
+    if (DEBUG) console.log(pageInfo);
+    uid = pageInfo["client"]["userId"];
+    token = pageInfo["client"]["token"];
+    lang = pageInfo["client"]["lang"];
   } catch (err) {
     console.log(err);
     const dataLayer = unsafeWindow["dataLayer"][0];
@@ -1032,100 +1042,10 @@ async function initializeVariables() {
     token = await fetchTokenPolyfill();
   }
 
-  // main page body excepts profile
-  const pageBody = document.querySelector(".sc-12rgki1-0.jMEnyM");
-  try {
-    pageInfo =
-      Object.values(pageBody)[0]["child"]["memoizedProps"]["children"][1][
-        "props"
-      ];
-  } catch (err) {
-    console.log(err);
-    pageInfo = {
-      page: window.location.href.includes("bookmarks") ? "bookmark" : "top",
-    };
-  } finally {
-    if (DEBUG) console.log(pageInfo);
-  }
+  userTags = await fetchUserTags();
 
-  if (pageInfo["page"] === "bookmark") {
-    try {
-      // <section> contain tags and images
-      const el = await waitForDom("section.sc-jgyytr-0.buukZm");
-      let props = {};
-
-      for (let i = 0; i < 100; i++) {
-        if (props["tagList"] && props["works"]) break;
-        else await delay(200);
-        props =
-          Object.values(el)[0]["return"]["memoizedProps"]["children"][2][
-            "props"
-          ];
-      }
-      if (DEBUG) console.log(props);
-
-      userTags = props["tagList"];
-      userTags.splice(userTags.indexOf("未分類"), 1);
-      userTags = sortByParody(userTags);
-
-      tag = props.tag;
-      currentWorks = props.works;
-
-      // monitoring url change to update tag (current work might not update on tag changing)
-      let lastURL = location.href;
-      new MutationObserver(() => {
-        if (location.href !== lastURL) {
-          lastURL = location.href;
-          tag =
-            Object.values(el)[0]["return"]["memoizedProps"]["children"][2][
-              "props"
-            ]["tag"];
-          if (!tag || tag === "未分類") {
-            const removeTagButton =
-              document.querySelector("#remove_tag_button");
-            if (removeTagButton && removeTagButton.style.display === "flex") {
-              removeTagButton.style.display = "none";
-            }
-          } else {
-            const removeTagButtonPrompt =
-              document.querySelector("#remove_tag_prompt");
-            if (removeTagButtonPrompt)
-              removeTagButtonPrompt.innerText = lang.includes("zh")
-                ? "删除标签 " + tag
-                : "Delete Tag " + tag;
-          }
-          if (DEBUG) console.log("Current Tag:", tag);
-        }
-      }).observe(document, {
-        subtree: true,
-        childList: true,
-      });
-
-      // monitoring current works change
-      const propsObserver = new MutationObserver(() => {
-        currentWorks =
-          Object.values(el)[0]["return"]["memoizedProps"]["children"][2][
-            "props"
-          ]["works"];
-        if (DEBUG) console.log("Update current works", currentWorks[0]["alt"]);
-      });
-      // observe the works content
-      propsObserver.observe(await waitForDom("ul.sc-9y4be5-1.jtUPOE"), {
-        childList: true,
-      });
-    } catch (err) {
-      console.log(err);
-      if (!userTags) userTags = await userTagsPolyfill();
-    }
-  } else {
-    // no page info
-    userTags = await userTagsPolyfill();
-  }
-
-  if (DEBUG) {
-    console.log("dict:", synonymDict);
-    console.log("userTags:", userTags);
-  }
+  synonymDict = getValue("synonymDict", {});
+  if (Object.keys(synonymDict).length) setValue("synonymDict", synonymDict);
 }
 
 const maxRetries = 100;
@@ -1141,7 +1061,7 @@ async function waitForDom(selector) {
   );
 }
 
-function injectElements() {
+async function injectElements() {
   const pageBody = document.querySelector(".sc-12rgki1-0.jMEnyM");
   const root = document.querySelector("nav");
   root.classList.add("d-flex");
@@ -1183,13 +1103,29 @@ function injectElements() {
   `;
   removeTagButton.addEventListener("click", removeCurrentTag);
 
-  function injection(_, injectionObserver) {
+  async function injection(_, injectionObserver) {
     if (pageInfo["userId"] !== uid) return;
+    if (injectionObserver) injectionObserver.disconnect();
+
+    console.log("[Label Bookmarks] Try Injecting");
+
+    const workInfo = await updateWorkInfo();
+    if (!workInfo.works) {
+      if (injectionObserver)
+        injectionObserver.observe(pageBody, { childList: true });
+      return console.log("[Label Bookmarks] Abort Injection");
+    }
+    if (DEBUG) {
+      console.log("work info", workInfo);
+      console.log("user tags", userTags);
+      console.log("dict:", synonymDict);
+    }
+
     root.appendChild(buttonContainer);
     setElementProperties();
     setSynonymEventListener();
 
-    const editButtonContainer = document.querySelector(".sc-1dg0za1-6.fElfQf");
+    const editButtonContainer = await waitForDom(".sc-1dg0za1-6.fElfQf");
     if (editButtonContainer) {
       editButtonContainer.style.justifyContent = "initial";
       editButtonContainer.firstElementChild.style.marginRight = "auto";
@@ -1197,38 +1133,75 @@ function injectElements() {
         removeTagButton,
         editButtonContainer.lastChild
       );
-      const editButtonObserver = new MutationObserver((MutationRecord) => {
-        if (!MutationRecord[0].addedNodes.length) {
-          // open edit mode
-          const removeBookmarkContainer = document.querySelector(
-            "div.sc-13ywrd6-4.cXBjgZ"
-          );
-          removeBookmarkContainer.appendChild(clearTagsButton);
-          const removeBookmarkContainerObserver = new MutationObserver(() => {
-            const value =
-              removeBookmarkContainer.children[2].getAttribute("aria-disabled");
-            clearTagsButton.setAttribute("aria-disabled", value);
-            clearTagsButton.children[0].setAttribute("aria-disabled", value);
-          });
-          removeBookmarkContainerObserver.observe(
-            removeBookmarkContainer.children[2],
-            { attributes: true }
-          );
-
-          if (tag && tag !== "未分類") {
-            document.querySelector("#remove_tag_prompt").innerText =
-              lang.includes("zh") ? "删除标签 " + tag : "Delete Tag " + tag;
-            removeTagButton.style.display = "flex";
+      let removeBookmarkContainerObserver;
+      const editButtonObserver = new MutationObserver(
+        async (MutationRecord) => {
+          if (DEBUG) console.log("on edit mode change");
+          const { tag } = await updateWorkInfo();
+          if (!MutationRecord[0].addedNodes.length) {
+            // open edit mode
+            const removeBookmarkContainer = document.querySelector(
+              "div.sc-13ywrd6-4.cXBjgZ"
+            );
+            removeBookmarkContainer.appendChild(clearTagsButton);
+            removeBookmarkContainerObserver = new MutationObserver(() => {
+              const value =
+                removeBookmarkContainer.children[2].getAttribute(
+                  "aria-disabled"
+                );
+              clearTagsButton.setAttribute("aria-disabled", value);
+              clearTagsButton.children[0].setAttribute("aria-disabled", value);
+            });
+            removeBookmarkContainerObserver.observe(
+              removeBookmarkContainer.children[2],
+              { attributes: true }
+            );
+            if (tag && tag !== "未分類") {
+              document.querySelector("#remove_tag_prompt").innerText =
+                lang.includes("zh") ? "删除标签 " + tag : "Delete Tag " + tag;
+              removeTagButton.style.display = "flex";
+            }
+          } else {
+            // exit edit mode
+            removeTagButton.style.display = "none";
+            if (removeBookmarkContainerObserver)
+              removeBookmarkContainerObserver.disconnect();
           }
-        } else {
-          // exit edit mode
-          removeTagButton.style.display = "none";
         }
-      });
+      );
       editButtonObserver.observe(editButtonContainer, {
         childList: true,
       });
     }
+
+    let lastTag = workInfo.tag;
+    const tagsContainer = await waitForDom(".sc-1jxp5wn-1");
+    new MutationObserver(async () => {
+      const workInfo = await updateWorkInfo();
+      if (lastTag !== workInfo.tag) {
+        lastTag = workInfo.tag;
+        const removeTagButton = document.querySelector("#remove_tag_button");
+        if (!workInfo.tag || workInfo.tag === "未分類") {
+          if (removeTagButton && removeTagButton.style.display === "flex") {
+            removeTagButton.style.display = "none";
+          }
+        } else {
+          if (removeTagButton && removeTagButton.style.display === "none") {
+            removeTagButton.style.display = "flex";
+          }
+          const removeTagButtonPrompt =
+            document.querySelector("#remove_tag_prompt");
+          if (removeTagButtonPrompt)
+            removeTagButtonPrompt.innerText = lang.includes("zh")
+              ? "删除标签 " + workInfo.tag
+              : "Delete Tag " + workInfo.tag;
+        }
+      }
+      if (DEBUG) console.log("Current Tag:", workInfo.tag);
+    }).observe(tagsContainer, {
+      subtree: true,
+      childList: true,
+    });
 
     const toUncategorized = document.querySelector(".sc-1mr081w-0");
     if (toUncategorized) {
@@ -1238,11 +1211,10 @@ function injectElements() {
     }
 
     console.log("[Label Bookmarks] Injected");
-    if (injectionObserver) injectionObserver.disconnect();
     return true;
   }
 
-  if (!injection()) {
+  if (!(await injection())) {
     const pageObserver = new MutationObserver(injection);
     pageObserver.observe(pageBody, { childList: true });
   }
@@ -1304,9 +1276,7 @@ async function updateSuggestion(
     }
     if (!candidates.length) {
       const resRaw = await fetch(
-        `https://www.pixiv.net/rpc/cps.php?keyword=${encodeURI(
-          keyword
-        )}&lang=${lang}`
+        `/rpc/cps.php?keyword=${encodeURI(keyword)}&lang=${lang}`
       );
       const res = await resRaw.json();
       candidates = res["candidates"].filter((i) => i["tag_name"] !== keyword);
@@ -1394,11 +1364,6 @@ function setElementProperties() {
   // in case that tag has been deleted
   else tagToQuery.value = "未分類";
   tagToQuery.onchange = () => setValue("tagToQuery", tagToQuery.value);
-
-  const publicationType = document.querySelector("#label_publication_type");
-  publicationType.value = getValue("publicationType", "show");
-  publicationType.onchange = () =>
-    setValue("publicationType", publicationType.value);
 
   const labelR18 = document.querySelector("#label_r18");
   labelR18.value = getValue("labelR18", "true");

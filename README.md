@@ -2,7 +2,11 @@
 
 <a href="#cn_doc">中文文档</a>
 
-## Automatically add existing labels for images in the bookmarks
+## Automatically add existing tags for images in the bookmarks, and search them
+
+## Please Use Tampermonkey as the script manager
+
+- The script is developed on Tampermonkey, whereas Greasemonkey has quite different API calls.
 
 ## Intro
 
@@ -105,6 +109,19 @@
   - By default, the script will categorize those NSFW works into the R-18 tag
   - If you don't want the tag, set it as *No* before starting
 
+## Remove All Tags from Selected Works
+
+- The script can help you remove all tags from selected artworks easily
+- This usually helps when you want to reset multiple images to Uncategorized
+- Click on the ***Edit Bookmarks*** button, and you will find an extra ***Remove Tags*** button below the tags section
+- The button is disabled until you select several images
+
+## Remove a Bookmark Tag from Related Works
+ 
+- It is not hard for you to find that a new button named ***Delete Tag XXX*** comes out when you click on the Edit Bookmarks button
+- This will help you to remove this bookmark tag from ***ALL*** related images
+- This operation will not affect the bookmarked status, i.e. the images will become uncategorized if there is not any other tag remains
+
 ## Search Your Bookmarks
 
 - You can also search your bookmarks with this script
@@ -139,6 +156,10 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
 
 
 <h1 id="cn_doc">自动为Pixiv收藏夹内图片打上已有的标签</h1>
+
+## 请使用Tampermonkey插件
+
+- 脚本基于Tampermonkey开发，Greasemonkey的API与本脚本不兼容，如果希望在Greasemonkey上使用请自行修改使用的API
 
 ## 工作原理
 
@@ -239,6 +260,19 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
   - 默认会将非全年龄向作品归入R-18标签
   - 如果不需要该标签可以设置为忽略
   
+## 清除作品的所有标签
+
+- 除了自动标签，这里还提供了能够批量清除作品标签的功能
+- 通常在需要将复数作品重置为*未分类*状态时使用
+- 点击*管理收藏*，在标签栏下方会显示一个新增的*清除标签*按钮
+- 当在下方选择了复数作品后，点击按钮清除作品标签
+
+## 从所有关联作品中删除特定标签
+
+- 在点击*管理收藏*后，原位置会出现新的*删除标签 XXX*按钮
+- 这一功能将会从关联的所有作品中移除该标签
+- 这一操作并不会影响作品的收藏状态，该标签下的作品至多会被还原为未分类状态
+
 ## 搜索收藏夹标签
 
 - 除了自动标签以外，本脚本还提供搜索收藏夹功能，便于更快地在大量的收藏找到需要的图片。
