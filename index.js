@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      4.11
+// @version      4.12
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -19,7 +19,7 @@
 
 // ==/UserScript==
 
-let uid, token, lang, userTags, synonymDict, pageInfo;
+let uid, token, lang, userTags, synonymDict, pageInfo, theme;
 
 Array.prototype.toUpperCase = function () {
   return this.map((i) => i.toUpperCase());
@@ -588,6 +588,8 @@ async function handleSearch(evt) {
   );
   console.log("includeArray:", includeArray, "excludeArray", excludeArray);
 
+  const textColor = theme ? "rgba(0, 0, 0, 0.88)" : "rgba(255, 255, 255, 0.88)";
+
   let index = 0; // index for current search batch
   do {
     const bookmarks = await fetchBookmarks(
@@ -684,7 +686,7 @@ async function handleSearch(evt) {
        <div class="mb-1">
          <a href=${"/artworks/" + work.id}
           target="_blank" rel="noreferrer"
-          style="font-weight: bold; color: rgba(0, 0, 0, 0.88);">
+          style="font-weight: bold; color: ${textColor};">
           ${work.title}
           </a>
        </div>
@@ -714,7 +716,7 @@ async function handleSearch(evt) {
   else document.querySelector("#search_more").style.display = "none";
   if (!searchResults.length) {
     resultsDiv.innerHTML = `
-      <div class="text-center text-black-50 fw-bold py-4" style="white-space: pre-wrap; font-size: 2rem" id="no_result">
+      <div class="text-center text-black-50 fw-bold py-4 ${textColor}" style="white-space: pre-wrap; font-size: 2rem" id="no_result">
 暂无结果
 No Result
       </div>
@@ -726,13 +728,43 @@ No Result
 }
 
 function createModalElements() {
+  const bgColor = theme ? "bg-white" : "bg-dark";
+  const textColor = theme ? "text-lp-dark" : "text-lp-light";
+  addStyle(`
+  .text-lp-dark {
+    color: rgb(31, 31, 31);
+  }
+  .text-lp-light {
+    color: rgb(245, 245, 245);
+  }
+  .label-button.text-lp-dark, .label-button.text-lp-light {
+    color: rgb(133, 133, 133);
+  }
+  .label-button.text-lp-dark:hover {
+    color: rgb(31, 31, 31);
+  }
+  .label-button.text-lp-light:hover {
+    color: rgb(245, 245, 245);
+  }
+  .bg-dark button, .form-control, .form-control:focus, .form-select {
+    color: inherit;
+    background: inherit;
+  }
+  .modal::-webkit-scrollbar {
+    display: none; /* Chrome */
+  }
+  .modal {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+  `);
   // label
   const popupLabel = document.createElement("div");
   popupLabel.className = "modal fade";
   popupLabel.id = "label_modal";
   popupLabel.tabIndex = -1;
   popupLabel.innerHTML = `
-    <div class="modal-dialog modal-lg bg-white" style="pointer-events: initial">
+    <div class="modal-dialog modal-lg ${bgColor} ${textColor}" style="pointer-events: initial">
       <div class="modal-header">
         <h5 class="modal-title">自动添加标签 / Label Bookmarks</h5>
         <button class="btn btn-close" data-bs-dismiss="modal" />
@@ -810,7 +842,7 @@ function createModalElements() {
             &#9658; 自动标签范围 / Auto Labeling For
           </button>
           <select id="label_tag_query"
-            class="form-select select-custom-tags px-3 collapse show">
+            class="form-select select-custom-tags px-3 collapse show ${bgColor}">
             <option value="未分類">未分类作品 / Uncategorized Only</option>
             <option value="">全部作品 / All Works</option>
           </select>
@@ -824,7 +856,7 @@ function createModalElements() {
                 <br />
                 Whether the first tag will be added if there is not any match
               </label>
-              <select id="label_add_first" class="form-select">
+              <select id="label_add_first" class="form-select ${bgColor}">
                 <option value="false">否 / No</option>
                 <option value="true">是 / Yes</option>
               </select>
@@ -835,7 +867,7 @@ function createModalElements() {
                 <br />
                 Whether NSFW works will be labeled as #R-18
               </label>
-              <select id="label_r18" class="form-select">
+              <select id="label_r18" class="form-select ${bgColor}">
                 <option value="true">标记 / Yes</option>
                 <option value="false">忽略 / No</option>
               </select>
@@ -872,7 +904,7 @@ function createModalElements() {
   popupSearch.id = "search_modal";
   popupSearch.tabIndex = -1;
   popupSearch.innerHTML = `
-    <div class="modal-dialog modal-xl d-flex flex-column bg-white" style="pointer-events: initial">
+    <div class="modal-dialog modal-xl d-flex flex-column ${bgColor} ${textColor}" style="pointer-events: initial">
       <div class="modal-header">
         <h5 class="modal-title">搜索图片标签 / Search Bookmarks</h5>
         <button class="btn btn-close" data-bs-dismiss="modal" />
@@ -900,27 +932,27 @@ function createModalElements() {
             <div class="mb-3 px-3 collapse" id="advanced_search">
               <div class="mb-2">
                 <label class="form-label fw-light">标签匹配模式 / Match Pattern</label>
-                <select class="form-select" id="search_exact_match">
+                <select class="form-select ${bgColor}" id="search_exact_match">
                   <option value="fuzzy">模糊匹配 / Fuzzy Match</option>
                   <option value="exact">精确匹配 / Exact Match</option>
                 </select>
               </div>
               <div class="mb-2">
                 <label class="form-label fw-light">搜索标签数量匹配 / Search Tags Length Match</label>
-                <select class="form-select" id="search_length_match">
+                <select class="form-select ${bgColor}" id="search_length_match">
                   <option value="false">不需匹配 / Not Needed</option>
                   <option value="true">需要匹配 / Must Match</option>
                 </select>
               </div>
               <div class="mb-2">
                 <label class="form-label fw-light">自定义标签用于缩小搜索范围 / Custom Tag to Narrow the Search</label>
-                <select class="form-select select-custom-tags" id="search_select_tag">
+                <select class="form-select select-custom-tags ${bgColor}" id="search_select_tag">
                   <option value="">所有收藏 / All Works</option>
                 </select>
               </div>
               <div class="mb-2">
                 <label class="form-label fw-light">作品公开类型 / Publication Type</label>
-                <select class="form-select" id="search_publication">
+                <select class="form-select ${bgColor}" id="search_publication">
                   <option value="show">公开收藏 / Public</option>
                   <option value="hide">私密收藏 / Private</option>
                 </select>
@@ -951,8 +983,8 @@ function createModalElements() {
   clearBookmarkTagsModal.setAttribute("data-bs-backdrop", "static");
   clearBookmarkTagsModal.tabIndex = -1;
   clearBookmarkTagsModal.innerHTML = `
-    <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content py-4 px-5">
+    <div class="modal-dialog modal-dialog-centered" style="pointer-events: initial">
+      <div class="modal-body py-4 px-5 ${bgColor} ${textColor}">
         <div class="fs-5 mb-4 text-center">
           <div class="mt-4 mb-3">正在处理 / Working on</div>
           <div id="clear_tags_prompt"></div>
@@ -1044,6 +1076,30 @@ async function initializeVariables() {
 
   userTags = await fetchUserTags();
 
+  // switch between default and dark theme
+  const themeDiv = document.querySelector(".charcoal-token");
+  theme = themeDiv.getAttribute("data-theme") === "default";
+  new MutationObserver(() => {
+    theme = themeDiv.getAttribute("data-theme") === "default";
+    const prevBgColor = theme ? "bg-dark" : "bg-white";
+    const bgColor = theme ? "bg-white" : "bg-dark";
+    const prevTextColor = theme ? "text-lp-light" : "text-lp-dark";
+    const textColor = theme ? "text-lp-dark" : "text-lp-light";
+    [...document.querySelectorAll(".bg-dark, .bg-white")].forEach((el) => {
+      el.classList.replace(prevBgColor, bgColor);
+    });
+    [...document.querySelectorAll(".text-lp-dark, .text-lp-light")].forEach(
+      (el) => {
+        el.classList.replace(prevTextColor, textColor);
+      }
+    );
+    const prevClearTag = theme ? "dydUg" : "jbzOgz";
+    const clearTag = theme ? "jbzOgz" : "dydUg";
+    const clearTagsButton = document.querySelector("#clear_tags_button");
+    if (clearTagsButton)
+      clearTagsButton.children[0].classList.replace(prevClearTag, clearTag);
+  }).observe(themeDiv, { attributes: true });
+
   synonymDict = getValue("synonymDict", {});
   if (Object.keys(synonymDict).length) setValue("synonymDict", synonymDict);
 }
@@ -1062,6 +1118,7 @@ async function waitForDom(selector) {
 }
 
 async function injectElements() {
+  const textColor = theme ? "text-lp-dark" : "text-lp-light";
   const pageBody = document.querySelector(".sc-12rgki1-0.jMEnyM");
   const root = document.querySelector("nav");
   root.classList.add("d-flex");
@@ -1069,16 +1126,18 @@ async function injectElements() {
   buttonContainer.className = "flex-grow-1 justify-content-end d-flex";
   buttonContainer.id = "label_bookmarks_buttons";
   buttonContainer.innerHTML = `
-        <button class="label-button" data-bs-toggle="modal" data-bs-target="#search_modal" id="search_modal_button"/>
-        <button class="label-button" data-bs-toggle="modal" data-bs-target="#label_modal" id="label_modal_button"/>
+        <button class="label-button ${textColor}" data-bs-toggle="modal" data-bs-target="#search_modal" id="search_modal_button"/>
+        <button class="label-button ${textColor}" data-bs-toggle="modal" data-bs-target="#label_modal" id="label_modal_button"/>
       `;
 
+  const clearTagsThemeClass = theme ? "jbzOgz" : "dydUg";
   const clearTagsText = lang.includes("zh") ? "清除标签" : "Remove Tags";
   const clearTagsButton = document.createElement("div");
+  clearTagsButton.id = "clear_tags_button";
   clearTagsButton.className = "sc-1ij5ui8-0 QihHO sc-13ywrd6-7 tPCje";
   clearTagsButton.setAttribute("aria-disabled", "true");
   clearTagsButton.setAttribute("role", "button");
-  clearTagsButton.innerHTML = `<div aria-disabled="true" class="sc-4a5gah-0 jbzOgz">
+  clearTagsButton.innerHTML = `<div aria-disabled="true" class="sc-4a5gah-0 ${clearTagsThemeClass}">
             <div class="sc-4a5gah-1 kHyYuA">
               ${clearTagsText}
             </div>
@@ -1099,7 +1158,7 @@ async function injectElements() {
         <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
       </svg>
     </div>
-    <div class="fw-bold" id="remove_tag_prompt"></div>
+    <div class="fw-bold ${textColor}" id="remove_tag_prompt"></div>
   `;
   removeTagButton.addEventListener("click", removeCurrentTag);
 
@@ -1166,6 +1225,8 @@ async function injectElements() {
             removeTagButton.style.display = "none";
             if (removeBookmarkContainerObserver)
               removeBookmarkContainerObserver.disconnect();
+            clearTagsButton.setAttribute("aria-disabled", "true");
+            clearTagsButton.children[0].setAttribute("aria-disabled", "true");
           }
         }
       );
@@ -1186,7 +1247,11 @@ async function injectElements() {
             removeTagButton.style.display = "none";
           }
         } else {
-          if (removeTagButton && removeTagButton.style.display === "none") {
+          if (
+            workInfo["editMode"] &&
+            removeTagButton &&
+            removeTagButton.style.display === "none"
+          ) {
             removeTagButton.style.display = "flex";
           }
           const removeTagButtonPrompt =
@@ -1322,14 +1387,12 @@ function setElementProperties() {
          border-bottom: none;
          border-left: none;
          border-right: none;
-         color: rgba(0, 0, 0, 0.32);
          line-height: 24px;
          background: transparent;
          transition: color 0.4s ease 0s, border 0.4s ease 0s;
        }
        .label-button:hover {
          border-top: 4px solid rgb(0, 150, 250);
-         color: rgba(0, 0, 0, 0.88);
        }`
   );
 
@@ -1591,6 +1654,8 @@ function setSynonymEventListener() {
 (function () {
   "use strict";
   loadResources();
-  createModalElements();
-  waitForDom("nav").then(initializeVariables).then(injectElements);
+  waitForDom("nav")
+    .then(initializeVariables)
+    .then(createModalElements)
+    .then(injectElements);
 })();
