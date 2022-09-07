@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      4.12
+// @version      4.14
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -20,17 +20,25 @@
 // ==/UserScript==
 
 let uid, token, lang, userTags, synonymDict, pageInfo, theme;
+// noinspection TypeScriptUMDGlobal,JSUnresolvedVariable
+let unsafeWindow_ = unsafeWindow,
+  GM_getValue_ = GM_getValue,
+  GM_setValue_ = GM_setValue,
+  GM_addStyle_ = GM_addStyle,
+  GM_getResourceURL_ = GM_getResourceURL;
 
 Array.prototype.toUpperCase = function () {
   return this.map((i) => i.toUpperCase());
 };
 
 function isEqualObject(obj1, obj2) {
+  if (typeof obj1 !== "object") return obj1 === obj2;
   return (
-    typeof obj1 === "object" &&
-    typeof obj2 === "object" &&
+    typeof obj1 === typeof obj2 &&
     Object.keys(obj1).every((key, i) => key === Object.keys(obj2)[i]) &&
-    Object.values(obj1).every((value, i) => value === Object.values(obj2)[i])
+    Object.values(obj1).every((value, i) =>
+      isEqualObject(value, Object.values(obj2)[i])
+    )
   );
 }
 
@@ -39,12 +47,12 @@ function delay(ms) {
 }
 
 function getValue(name, defaultValue) {
-  return GM_getValue(name, defaultValue);
+  return GM_getValue_(name, defaultValue);
 }
 
 function setValue(name, value) {
   if (name === "synonymDict" && (!value || !Object.keys(value).length)) return;
-  GM_setValue(name, value);
+  GM_setValue_(name, value);
   // backup
   let valueArray = JSON.parse(window.localStorage.getItem(name));
   if (!valueArray) valueArray = [];
@@ -95,7 +103,7 @@ function setValue(name, value) {
 }
 
 function addStyle(style) {
-  GM_addStyle(style);
+  GM_addStyle_(style);
 }
 
 // merge all previous dict and return
@@ -106,6 +114,7 @@ function restoreSynonymDict() {
   const newDict = {};
   for (let elem of dictArray) {
     const dict = elem.value;
+    // merge all history value for the key
     Object.keys(dict).forEach((key) => {
       if (newDict[key])
         newDict[key] = Array.from(new Set(newDict[key].concat(dict[key])));
@@ -157,14 +166,14 @@ function loadResources() {
     return script;
   }
 
-  document.head.appendChild(cssElement(GM_getResourceURL("bootstrapCSS")));
-  document.head.appendChild(jsElement(GM_getResourceURL("bootstrapJS")));
+  document.head.appendChild(cssElement(GM_getResourceURL_("bootstrapCSS")));
+  document.head.appendChild(jsElement(GM_getResourceURL_("bootstrapJS")));
 
   // overwrite bootstrap global box-sizing style
   const style = document.createElement("style");
   style.id = "LB_overwrite";
   style.innerHTML =
-    "*,::after,::before { box-sizing: content-box; } .form-control,.form-select,.row>* { box-sizing: border-box; }";
+    "*,::after,::before { box-sizing: content-box; } .form-control,.form-select,.row>* { box-sizing: border-box; } body { background: initial; }";
   document.head.appendChild(style);
 }
 
@@ -243,8 +252,10 @@ The tags of work(s) you've selected will be removed (become uncategorized). Is t
     .filter((work) => work.associatedTags.length);
 
   const modal = document.querySelector("#clear_tags_modal");
-  let instance = bootstrap.Modal.getInstance(modal);
-  if (!instance) instance = new bootstrap.Modal(modal);
+  // noinspection TypeScriptUMDGlobal
+  const bootstrap_ = bootstrap;
+  let instance = bootstrap_.Modal.getInstance(modal);
+  if (!instance) instance = new bootstrap_.Modal(modal);
   instance.show();
 
   const prompt = document.querySelector("#clear_tags_prompt");
@@ -293,8 +304,10 @@ The tag ${tag} will be removed and works of ${tag} will keep bookmarked. Is this
 
   window.runFlag = true;
   const modal = document.querySelector("#clear_tags_modal");
-  let instance = bootstrap.Modal.getInstance(modal);
-  if (!instance) instance = new bootstrap.Modal(modal);
+  // noinspection TypeScriptUMDGlobal
+  const bootstrap_ = bootstrap;
+  let instance = bootstrap_.Modal.getInstance(modal);
+  if (!instance) instance = new bootstrap_.Modal(modal);
   await instance.show();
 
   const prompt = document.querySelector("#clear_tags_prompt");
@@ -361,7 +374,7 @@ Tag ${tag} Removed!`;
   }, 1000);
 }
 
-const DEBUG = false;
+const DEBUG = true;
 async function handleLabel(evt) {
   evt.preventDefault();
 
@@ -527,15 +540,40 @@ let prevSearch, searchBatch, searchResults, searchOffset, totalBookmarks;
 async function handleSearch(evt) {
   evt.preventDefault();
 
-  const searchString = document
-    .querySelector("#search_value")
-    .value.replace(/！/g, "!");
+  let searchMode = 0;
+  let searchString = document.querySelector("#search_value")?.value;
+  if (
+    document.querySelector("#basic_search_field").className.includes("d-none")
+  ) {
+    searchMode = 1;
+    searchString = [...document.querySelectorAll(".advanced_search_field")]
+      .map((el) => el.value.split(" ")[0])
+      .join(" ");
+  }
+  searchString = searchString.replace(/！/g, "!").trim();
+  const searchStringArray = searchString.split(" ");
+  let searchConfigs = Array(searchStringArray.length).fill(Array(4).fill(true));
+  if (searchMode) {
+    const advanced = document.querySelector("#advanced_search_fields");
+    const configContainers = [...advanced.querySelectorAll(".row")];
+    searchConfigs = configContainers.map((el) =>
+      [...el.querySelectorAll("input")].map((i) => i.checked)
+    );
+  }
+
   const matchPattern = document.querySelector("#search_exact_match").value;
   const tagsLengthMatch =
     document.querySelector("#search_length_match").value === "true";
   const tagToQuery = document.querySelector("#search_select_tag").value;
   const publicationType = document.querySelector("#search_publication").value;
-  const newSearch = { searchString, matchPattern, tagToQuery, publicationType };
+  const newSearch = {
+    searchString,
+    searchConfigs,
+    matchPattern,
+    tagsLengthMatch,
+    tagToQuery,
+    publicationType,
+  };
 
   // initialize new search
   window.runFlag = true;
@@ -569,20 +607,21 @@ async function handleSearch(evt) {
 
   document.querySelector("#spinner").style.display = "block";
 
-  const collapseIns = bootstrap.Collapse.getInstance(
+  // noinspection TypeScriptUMDGlobal
+  const bootstrap_ = bootstrap;
+  const collapseIns = bootstrap_.Collapse.getInstance(
     document.querySelector("#advanced_search")
   );
   if (collapseIns) collapseIns.hide();
 
-  let includeArray = searchString
-    .split(" ")
-    .filter((el) => el.length && !el.includes("!"));
-  let excludeArray = searchString
-    .split(" ")
+  let includeArray = searchStringArray.filter(
+    (el) => el.length && !el.includes("!")
+  );
+  let excludeArray = searchStringArray
     .filter((el) => el.length && el.includes("!"))
     .map((el) => el.slice(1));
 
-  console.log("Search Configuration:");
+  console.log("Search Configuration:", searchConfigs);
   console.log(
     `matchPattern: ${matchPattern}; tagsLengthMatch: ${tagsLengthMatch}; tagToQuery: ${tagToQuery}; publicationType: ${publicationType}`
   );
@@ -617,11 +656,14 @@ async function handleSearch(evt) {
       const userTags =
         bookmarks["bookmarkTags"][work["bookmarkData"]["id"]] || []; // empty if uncategorized
       const workTags = work["tags"];
-      const mergedTags = [...userTags, ...workTags];
 
       const ifInclude = (keyword) => {
         // especially, R-18 tag is labelled in work
         if (["R-18", "R18", "r18"].includes(keyword)) return work["xRestrict"];
+
+        const index = searchStringArray.findIndex((kw) => kw.includes(keyword));
+        const config = searchConfigs[index];
+        if (DEBUG) console.log(keyword, config);
 
         // convert input keyword to a user tag
         // keywords from user input, alias from dict
@@ -650,15 +692,27 @@ async function handleSearch(evt) {
         if (
           keywordArray.some(
             (kw) =>
-              work.title.toUpperCase().includes(kw.toUpperCase()) ||
-              work["userName"].toUpperCase().includes(kw.toUpperCase()) ||
-              mergedTags.toUpperCase().includes(kw.toUpperCase())
+              (config[0] &&
+                work.title.toUpperCase().includes(kw.toUpperCase())) ||
+              (config[1] &&
+                work["userName"].toUpperCase().includes(kw.toUpperCase())) ||
+              (config[2] &&
+                workTags.toUpperCase().includes(kw.toUpperCase())) ||
+              (config[3] && userTags.toUpperCase().includes(kw.toUpperCase()))
           )
         )
           return true;
         if (matchPattern === "exact") return false;
-        return keywordArray.some((kw) =>
-          mergedTags.some((tag) => tag.toUpperCase().includes(kw.toUpperCase()))
+        return keywordArray.some(
+          (kw) =>
+            (config[2] &&
+              workTags
+                .toUpperCase()
+                .some((tag) => tag.includes(kw.toUpperCase()))) ||
+            (config[3] &&
+              userTags
+                .toUpperCase()
+                .some((tag) => tag.includes(kw.toUpperCase())))
         );
       };
 
@@ -757,7 +811,26 @@ function createModalElements() {
     -ms-overflow-style: none;  /* IE and Edge */
     scrollbar-width: none;  /* Firefox */
   }
+  .btn-close-empty {
+    background: none;
+    height: initial;
+    width: initial;
+  }
   `);
+  // noinspection TypeScriptUMDGlobal
+  const bootstrap_ = bootstrap;
+  const backdropConfig = getValue("backdropConfig", "false") === "true";
+  const svgPin = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pin" viewBox="0 0 16 16">
+    <path d="M4.146.146A.5.5 0 0 1 4.5 0h7a.5.5 0 0 1 .5.5c0 .68-.342 1.174-.646 1.479-.126.125-.25.224-.354.298v4.431l.078.048c.203.127.476.314.751.555C12.36 7.775 13 8.527 13 9.5a.5.5 0 0 1-.5.5h-4v4.5c0 .276-.224 1.5-.5 1.5s-.5-1.224-.5-1.5V10h-4a.5.5 0 0 1-.5-.5c0-.973.64-1.725 1.17-2.189A5.921 5.921 0 0 1 5 6.708V2.277a2.77 2.77 0 0 1-.354-.298C4.342 1.674 4 1.179 4 .5a.5.5 0 0 1 .146-.354zm1.58 1.408-.002-.001.002.001zm-.002-.001.002.001A.5.5 0 0 1 6 2v5a.5.5 0 0 1-.276.447h-.002l-.012.007-.054.03a4.922 4.922 0 0 0-.827.58c-.318.278-.585.596-.725.936h7.792c-.14-.34-.407-.658-.725-.936a4.915 4.915 0 0 0-.881-.61l-.012-.006h-.002A.5.5 0 0 1 10 7V2a.5.5 0 0 1 .295-.458 1.775 1.775 0 0 0 .351-.271c.08-.08.155-.17.214-.271H5.14c.06.1.133.191.214.271a1.78 1.78 0 0 0 .37.282z"/>
+  </svg>`;
+  const svgUnpin = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pin-angle" viewBox="0 0 16 16">
+    <path id="svg_unpin" d="M9.828.722a.5.5 0 0 1 .354.146l4.95 4.95a.5.5 0 0 1 0 .707c-.48.48-1.072.588-1.503.588-.177 0-.335-.018-.46-.039l-3.134 3.134a5.927 5.927 0 0 1 .16 1.013c.046.702-.032 1.687-.72 2.375a.5.5 0 0 1-.707 0l-2.829-2.828-3.182 3.182c-.195.195-1.219.902-1.414.707-.195-.195.512-1.22.707-1.414l3.182-3.182-2.828-2.829a.5.5 0 0 1 0-.707c.688-.688 1.673-.767 2.375-.72a5.922 5.922 0 0 1 1.013.16l3.134-3.133a2.772 2.772 0 0 1-.04-.461c0-.43.108-1.022.589-1.503a.5.5 0 0 1 .353-.146zm.122 2.112v-.002.002zm0-.002v.002a.5.5 0 0 1-.122.51L6.293 6.878a.5.5 0 0 1-.511.12H5.78l-.014-.004a4.507 4.507 0 0 0-.288-.076 4.922 4.922 0 0 0-.765-.116c-.422-.028-.836.008-1.175.15l5.51 5.509c.141-.34.177-.753.149-1.175a4.924 4.924 0 0 0-.192-1.054l-.004-.013v-.001a.5.5 0 0 1 .12-.512l3.536-3.535a.5.5 0 0 1 .532-.115l.096.022c.087.017.208.034.344.034.114 0 .23-.011.343-.04L9.927 2.028c-.029.113-.04.23-.04.343a1.779 1.779 0 0 0 .062.46z"/>
+  </svg>`;
+  const svgClose = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-x-lg" viewBox="0 0 16 16">
+  <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854Z"/>
+</svg>`;
+  const defaultPinConfig = backdropConfig ? svgPin : svgUnpin;
+
   // label
   const popupLabel = document.createElement("div");
   popupLabel.className = "modal fade";
@@ -767,7 +840,8 @@ function createModalElements() {
     <div class="modal-dialog modal-lg ${bgColor} ${textColor}" style="pointer-events: initial">
       <div class="modal-header">
         <h5 class="modal-title">自动添加标签 / Label Bookmarks</h5>
-        <button class="btn btn-close" data-bs-dismiss="modal" />
+        <button class="btn btn-close btn-close-empty ms-auto" id="label_pin">${defaultPinConfig}</button>
+        <button class="btn btn-close btn-close-empty ms-3" data-bs-dismiss="modal">${svgClose}</button>
       </div>
       <form class="modal-body p-4" id="label_form">
         <div class="text-center mb-4">
@@ -897,6 +971,25 @@ function createModalElements() {
       </div>
     </div>
   `;
+  // backdrop pin
+  popupLabel.setAttribute(
+    "data-bs-backdrop",
+    backdropConfig ? "static" : "true"
+  );
+  const labelPinButton = popupLabel.querySelector("#label_pin");
+  labelPinButton.addEventListener("click", () => {
+    const ins = bootstrap_.Modal.getOrCreateInstance(popupLabel);
+    const backdrop = ins["_config"]["backdrop"] === "static";
+    if (backdrop) {
+      ins["_config"]["backdrop"] = true;
+      setValue("backdropConfig", "false");
+      labelPinButton.innerHTML = svgUnpin;
+    } else {
+      ins["_config"]["backdrop"] = "static";
+      setValue("backdropConfig", "true");
+      labelPinButton.innerHTML = svgPin;
+    }
+  });
 
   // search
   const popupSearch = document.createElement("div");
@@ -907,7 +1000,8 @@ function createModalElements() {
     <div class="modal-dialog modal-xl d-flex flex-column ${bgColor} ${textColor}" style="pointer-events: initial">
       <div class="modal-header">
         <h5 class="modal-title">搜索图片标签 / Search Bookmarks</h5>
-        <button class="btn btn-close" data-bs-dismiss="modal" />
+        <button class="btn btn-close btn-close-empty ms-auto" id="search_pin">${defaultPinConfig}</button>
+        <button class="btn btn-close btn-close-empty ms-3" data-bs-dismiss="modal">${svgClose}</button>
       </div>
       <form class="modal-body flex-grow-1 d-flex flex-column p-4" id="search_form">
           <div class="mb-4">
@@ -916,11 +1010,17 @@ function createModalElements() {
                 输入要搜索的关键字，使用空格分隔，在关键字前加<strong>感叹号</strong>来排除该关键字。将会结合用户设置的同义词词典，
                 在收藏的图片中寻找标签匹配的图片展示在下方。当收藏时间跨度较大时，使用自定义标签缩小范围以加速搜索。
                 <br />
+                点击输入框右侧的切换按钮切换至高级搜索模式，此时可以限制该关键词的搜索范围，单个输入框只接受一个关键词。
+                <br />
                 Enter keywords seperated by spaces to launch a search. Add a <strong>Exclamation Mark</strong>
                 before any keyword to exclude it. The search process will use your synonym dictionary to look up the tags
                 of your bookmarked images. Use custom tag to narrow the search if images come from a wide time range.
+                <br />
+                Clicking the button on the right will toggle to advanced search mode, where you are able to choose
+                the search fields of each keyword. Note that in this mode only single keyword is accepted for each input box.
               </label>
-              <input type="text" class="form-control" id="search_value" required/>
+              <div id="basic_search_field"></div>
+              <div class="d-none" id="advanced_search_fields"></div>
               <div class="mt-3" style="display: none">
                 <div class="mb-2">您是否想要搜索 / Are you looking for:</div>
                 <div class="ms-3" id="search_suggestion"></div>
@@ -962,11 +1062,9 @@ function createModalElements() {
           <div class="flex-grow-1">
             <div class="position-absolute start-50 top-50 spinner-border text-secondary" style="display: none" id="spinner">
             </div>
-            <div class="row" id="search_results"/>
-            </div>
-            <div class="mb-2 text-end" id="search_prompt">
-            </div>
-            <button class="btn btn-outline-primary w-100 py-1" style="display: none;" id="search_more">继续搜索 / Search More</button>
+            <div class="row" id="search_results"/></div>
+            <div class="mb-2 text-end" id="search_prompt"></div>
+            <button class="btn btn-outline-primary w-100 py-1" style="display: none; box-sizing: border-box" id="search_more">继续搜索 / Search More</button>
           </div>
       </form>
       <div class="modal-footer">
@@ -976,6 +1074,25 @@ function createModalElements() {
       </div>
     </div>
   `;
+  // backdrop pin
+  popupSearch.setAttribute(
+    "data-bs-backdrop",
+    backdropConfig ? "static" : "true"
+  );
+  const searchPinButton = popupSearch.querySelector("#search_pin");
+  searchPinButton.addEventListener("click", () => {
+    const ins = bootstrap_.Modal.getOrCreateInstance(popupSearch);
+    const backdrop = ins["_config"]["backdrop"] === "static";
+    if (backdrop) {
+      ins["_config"]["backdrop"] = true;
+      setValue("backdropConfig", "false");
+      searchPinButton.innerHTML = svgUnpin;
+    } else {
+      ins["_config"]["backdrop"] = "static";
+      setValue("backdropConfig", "true");
+      searchPinButton.innerHTML = svgPin;
+    }
+  });
 
   const clearBookmarkTagsModal = document.createElement("div");
   clearBookmarkTagsModal.id = "clear_tags_modal";
@@ -1068,7 +1185,7 @@ async function initializeVariables() {
     lang = pageInfo["client"]["lang"];
   } catch (err) {
     console.log(err);
-    const dataLayer = unsafeWindow["dataLayer"][0];
+    const dataLayer = unsafeWindow_["dataLayer"][0];
     uid = dataLayer["user_id"];
     lang = dataLayer["lang"];
     token = await fetchTokenPolyfill();
@@ -1163,6 +1280,7 @@ async function injectElements() {
   removeTagButton.addEventListener("click", removeCurrentTag);
 
   async function injection(_, injectionObserver) {
+    if (_) console.log(_);
     if (pageInfo["userId"] !== uid) return;
     if (injectionObserver) injectionObserver.disconnect();
 
@@ -1183,6 +1301,7 @@ async function injectElements() {
     root.appendChild(buttonContainer);
     setElementProperties();
     setSynonymEventListener();
+    setAdvancedSearch();
 
     const editButtonContainer = await waitForDom(".sc-1dg0za1-6.fElfQf");
     if (editButtonContainer) {
@@ -1276,6 +1395,19 @@ async function injectElements() {
     }
 
     console.log("[Label Bookmarks] Injected");
+
+    window.addEventListener(
+      "popstate",
+      () => {
+        if (window.location.href.match(/\/users\/\d+\/bookmarks\/artworks/))
+          delay(1000)
+            .then(() => waitForDom(".sc-1jxp5wn-1"))
+            .then(createModalElements)
+            .then(injectElements);
+      },
+      { once: true }
+    );
+
     return true;
   }
 
@@ -1442,38 +1574,6 @@ function setElementProperties() {
   document
     .querySelector("#stop_remove_tag_button")
     .addEventListener("click", () => (window.runFlag = false));
-
-  // search with suggestion
-  const searchInput = document.querySelector("#search_value");
-  const searchSuggestion = document.querySelector("#search_suggestion");
-  searchInput.addEventListener("keyup", (evt) => {
-    updateSuggestion(
-      evt,
-      searchSuggestion,
-      true,
-      (candidate, candidateButton) =>
-        candidateButton.addEventListener("click", () => {
-          const keywordsArray = searchInput.value.split(" ");
-          const keyword = keywordsArray[keywordsArray.length - 1];
-          let newKeyword = candidate["tag_name"];
-          if (keyword.match(/^!/) || keyword.match(/^！/))
-            newKeyword = "!" + newKeyword;
-          keywordsArray.splice(keywordsArray.length - 1, 1, newKeyword);
-          searchInput.value = keywordsArray.join(" ");
-        })
-    ).catch(console.log);
-  });
-
-  let synonymDictKeys = Object.keys(synonymDict);
-  if (synonymDictKeys.length) {
-    const index = Math.floor(Math.random() * synonymDictKeys.length);
-    document
-      .querySelector("#search_value")
-      .setAttribute(
-        "placeholder",
-        "eg: " + synonymDictKeys[index].split("(")[0]
-      );
-  }
 }
 
 function setSynonymEventListener() {
@@ -1649,6 +1749,141 @@ function setSynonymEventListener() {
     .querySelector("button#label_restore_dict")
     .addEventListener("click", restoreSynonymDict);
   if (DEBUG) console.log("[Label Bookmarks] Synonym Dictionary Ready");
+}
+
+function setAdvancedSearch() {
+  function generatePlaceholder() {
+    const synonymDictKeys = Object.keys(synonymDict);
+    return synonymDictKeys.length
+      ? "eg: " +
+          synonymDictKeys[
+            Math.floor(Math.random() * synonymDictKeys.length)
+          ].split("(")[0]
+      : "";
+  }
+  function generateBasicField() {
+    const fieldContainer = document.createElement("div");
+    fieldContainer.className = "d-flex";
+    const searchInput = document.createElement("input");
+    searchInput.className = "form-control";
+    searchInput.required = true;
+    searchInput.id = "search_value";
+    searchInput.setAttribute("placeholder", generatePlaceholder());
+    // search with suggestion
+    const searchSuggestion = document.querySelector("#search_suggestion");
+    searchInput.addEventListener("keyup", (evt) => {
+      updateSuggestion(
+        evt,
+        searchSuggestion,
+        true,
+        (candidate, candidateButton) =>
+          candidateButton.addEventListener("click", () => {
+            const keywordsArray = searchInput.value.split(" ");
+            const keyword = keywordsArray[keywordsArray.length - 1];
+            let newKeyword = candidate["tag_name"];
+            if (keyword.match(/^!/) || keyword.match(/^！/))
+              newKeyword = "!" + newKeyword;
+            keywordsArray.splice(keywordsArray.length - 1, 1, newKeyword);
+            searchInput.value = keywordsArray.join(" ");
+          })
+      ).catch(console.log);
+    });
+    const toggleBasic = document.createElement("button");
+    toggleBasic.style.border = "1px solid #ced4da";
+    toggleBasic.className = "btn btn-outline-secondary ms-2";
+    toggleBasic.type = "button";
+    toggleBasic.addEventListener("click", () => {
+      basic.classList.add("d-none");
+      basic.removeChild(basic.firstChild);
+      advanced.appendChild(generateAdvancedField(0));
+      advanced.classList.remove("d-none");
+    });
+    toggleBasic.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-toggles" viewBox="0 0 16 16">
+      <path d="M4.5 9a3.5 3.5 0 1 0 0 7h7a3.5 3.5 0 1 0 0-7h-7zm7 6a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5zm-7-14a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zm2.45 0A3.49 3.49 0 0 1 8 3.5 3.49 3.49 0 0 1 6.95 6h4.55a2.5 2.5 0 0 0 0-5H6.95zM4.5 0h7a3.5 3.5 0 1 1 0 7h-7a3.5 3.5 0 1 1 0-7z"/>
+    </svg>`;
+    fieldContainer.appendChild(searchInput);
+    fieldContainer.appendChild(toggleBasic);
+    return fieldContainer;
+  }
+  function generateAdvancedField(index) {
+    const fieldContainer = document.createElement("div");
+    fieldContainer.className = "mb-3";
+    const inputContainer = document.createElement("div");
+    inputContainer.className = "d-flex mb-2";
+    inputContainer.innerHTML = `<input type="text" class="advanced_search_field form-control" required>`;
+    if (!index) {
+      inputContainer.firstElementChild.setAttribute(
+        "placeholder",
+        generatePlaceholder()
+      );
+      const toggleAdvanced = document.createElement("button");
+      toggleAdvanced.style.border = "1px solid #ced4da";
+      toggleAdvanced.className = "btn btn-outline-secondary ms-2";
+      toggleAdvanced.type = "button";
+      toggleAdvanced.addEventListener("click", () => {
+        const basic = document.querySelector("#basic_search_field");
+        const advanced = document.querySelector("#advanced_search_fields");
+        basic.appendChild(generateBasicField());
+        basic.classList.remove("d-none");
+        advanced.classList.add("d-none");
+        while (advanced.firstChild) {
+          advanced.removeChild(advanced.firstChild);
+        }
+      });
+      toggleAdvanced.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-toggles" viewBox="0 0 16 16">
+        <path d="M4.5 9a3.5 3.5 0 1 0 0 7h7a3.5 3.5 0 1 0 0-7h-7zm7 6a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5zm-7-14a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zm2.45 0A3.49 3.49 0 0 1 8 3.5 3.49 3.49 0 0 1 6.95 6h4.55a2.5 2.5 0 0 0 0-5H6.95zM4.5 0h7a3.5 3.5 0 1 1 0 7h-7a3.5 3.5 0 1 1 0-7z"/>
+      </svg>`;
+      const addFieldButton = document.createElement("button");
+      addFieldButton.style.border = "1px solid #ced4da";
+      addFieldButton.className = "btn btn-outline-secondary ms-2";
+      addFieldButton.type = "button";
+      addFieldButton.addEventListener("click", () => {
+        const advanced = document.querySelector("#advanced_search_fields");
+        advanced.appendChild(generateAdvancedField(advanced.childElementCount));
+      });
+      addFieldButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-plus-lg" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M8 2a.5.5 0 0 1 .5.5v5h5a.5.5 0 0 1 0 1h-5v5a.5.5 0 0 1-1 0v-5h-5a.5.5 0 0 1 0-1h5v-5A.5.5 0 0 1 8 2Z"/>
+      </svg>`;
+      inputContainer.appendChild(toggleAdvanced);
+      inputContainer.appendChild(addFieldButton);
+    } else {
+      const removeFieldButton = document.createElement("button");
+      removeFieldButton.style.border = "1px solid #ced4da";
+      removeFieldButton.className = "btn btn-outline-secondary ms-2";
+      removeFieldButton.type = "button";
+      removeFieldButton.addEventListener("click", () => {
+        const advanced = document.querySelector("#advanced_search_fields");
+        advanced.removeChild(fieldContainer);
+      });
+      removeFieldButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-dash-lg" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M2 8a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11A.5.5 0 0 1 2 8Z"/>
+      </svg>`;
+      inputContainer.appendChild(removeFieldButton);
+    }
+    const configContainer = document.createElement("div");
+    configContainer.className = "row";
+    [
+      "标题/Title",
+      "作者/Author",
+      "作品标签/Work Tags",
+      "用户标签/Bookmark Tags",
+    ].forEach((name) => {
+      const id = name.split("/")[0] + index;
+      const container = document.createElement("div");
+      container.className = "col-3";
+      container.innerHTML = `<div class="form-check">
+        <input type="checkbox" class="form-check-input" id=${id} checked="true">
+        <label class="form-check-label" for=${id}>${name}</label>
+      </div>`;
+      configContainer.appendChild(container);
+    });
+    fieldContainer.appendChild(inputContainer);
+    fieldContainer.appendChild(configContainer);
+    return fieldContainer;
+  }
+  const basic = document.querySelector("#basic_search_field");
+  const advanced = document.querySelector("#advanced_search_fields");
+  basic.appendChild(generateBasicField());
 }
 
 (function () {
