@@ -16,6 +16,7 @@
 // @grant        GM_setValue
 // @grant        GM_addStyle
 // @license      MIT
+// @require      file:///C:\Users\mao\Documents\Repo\LabelPixivBookmarks\index.js
 
 // ==/UserScript==
 
@@ -173,7 +174,7 @@ function loadResources() {
   const style = document.createElement("style");
   style.id = "LB_overwrite";
   style.innerHTML =
-    "*,::after,::before { box-sizing: content-box; } .form-control,.form-select,.row>* { box-sizing: border-box; } body { background: initial; }";
+    "*,::after,::before { box-sizing: content-box; } .btn,.form-control,.form-select,.row>* { box-sizing: border-box; } body { background: initial; }";
   document.head.appendChild(style);
 }
 
@@ -374,7 +375,7 @@ Tag ${tag} Removed!`;
   }, 1000);
 }
 
-const DEBUG = true;
+const DEBUG = false;
 async function handleLabel(evt) {
   evt.preventDefault();
 
@@ -384,12 +385,16 @@ async function handleLabel(evt) {
     ? "hide"
     : "show";
   const labelR18 = document.querySelector("#label_r18").value;
+  const exclusion = document
+    .querySelector("#label_exclusion")
+    .value.split(/[\s\n]/)
+    .filter((t) => t);
 
   console.log("Label Configuration:");
   console.log(
     `addFirst: ${addFirst === "true"}; tagToQuery: ${tagToQuery}; labelR18: ${
       labelR18 === "true"
-    }; publicationType: ${publicationType}`
+    }; publicationType: ${publicationType}; exclusion: ${exclusion.join(",")}`
   );
 
   window.runFlag = true;
@@ -487,8 +492,10 @@ async function handleLabel(evt) {
           .filter((i) => i)
       );
       if (work["xRestrict"] && labelR18 === "true") intersection.push("R-18");
-      // remove duplicate
-      intersection = Array.from(new Set(intersection));
+      // remove duplicate and exclusion
+      intersection = Array.from(new Set(intersection)).filter(
+        (t) => !exclusion.includes(t)
+      );
 
       const bookmarkId = work["bookmarkData"]["id"];
       const prevTags = bookmarks["bookmarkTags"][bookmarkId] || [];
@@ -935,7 +942,7 @@ function createModalElements() {
                 <option value="true">是 / Yes</option>
               </select>
             </div>
-            <div class="mb-4">
+            <div class="mb-3">
               <label class="form-label fw-light" for="label_r18">
                 是否为非全年龄作品标记#R-18标签
                 <br />
@@ -945,6 +952,14 @@ function createModalElements() {
                 <option value="true">标记 / Yes</option>
                 <option value="false">忽略 / No</option>
               </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-light" for="label_exclusion">
+                忽略以下标签（空格/回车分割，区分大小写）
+                <br />
+                Ignore following tags (delimited by line/space, case-sensitive)
+              </label>
+              <textarea id="label_exclusion" class="form-control" rows="2" id="tag_alias" style="min-height: initial" placeholder="オリジナル"></textarea>
             </div>
           </div>
         </div>
@@ -1064,7 +1079,7 @@ function createModalElements() {
             </div>
             <div class="row" id="search_results"/></div>
             <div class="mb-2 text-end" id="search_prompt"></div>
-            <button class="btn btn-outline-primary w-100 py-1" style="display: none; box-sizing: border-box" id="search_more">继续搜索 / Search More</button>
+            <button class="btn btn-outline-primary w-100 py-1" style="display: none;" id="search_more">继续搜索 / Search More</button>
           </div>
       </form>
       <div class="modal-footer">
@@ -1563,6 +1578,10 @@ function setElementProperties() {
   const labelR18 = document.querySelector("#label_r18");
   labelR18.value = getValue("labelR18", "true");
   labelR18.onchange = () => setValue("labelR18", labelR18.value);
+
+  const exclusion = document.querySelector("#label_exclusion");
+  exclusion.value = getValue("exclusion", "");
+  exclusion.onchange = () => setValue("exclusion", exclusion.value);
 
   // search bookmark form
   const searchForm = document.querySelector("#search_form");
