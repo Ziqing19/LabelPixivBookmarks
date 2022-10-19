@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      4.14
+// @version      5.0
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -15,18 +15,19 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_addStyle
+// @grant        GM_registerMenuCommand
 // @license      MIT
-// @require      file:///C:\Users\mao\Documents\Repo\LabelPixivBookmarks\index.js
 
 // ==/UserScript==
 
-let uid, token, lang, userTags, synonymDict, pageInfo, theme;
+let uid, token, lang, userTags, synonymDict, pageInfo, theme, generator;
 // noinspection TypeScriptUMDGlobal,JSUnresolvedVariable
 let unsafeWindow_ = unsafeWindow,
   GM_getValue_ = GM_getValue,
   GM_setValue_ = GM_setValue,
   GM_addStyle_ = GM_addStyle,
-  GM_getResourceURL_ = GM_getResourceURL;
+  GM_getResourceURL_ = GM_getResourceURL,
+  GM_registerMenuCommand_ = GM_registerMenuCommand;
 
 Array.prototype.toUpperCase = function () {
   return this.map((i) => i.toUpperCase());
@@ -729,40 +730,7 @@ async function handleSearch(evt) {
         !excludeArray.some(ifInclude)
       ) {
         searchResults.push(work);
-        const tagsString = work.tags
-          .slice(0, 6)
-          .map((i) => "#" + i)
-          .join(" ");
-        const container = document.createElement("div");
-        container.className = "col-4 col-lg-3 col-xl-2 p-1";
-        container.innerHTML = `
-       <div class="mb-1">
-         <a href=${"/artworks/" + work.id} target="_blank" rel="noreferrer">
-           <img src=${work.url} alt="square" class="rounded-3 img-fluid" />
-         </a>
-       </div>
-       <div class="mb-1" style="font-size: 10px; color: rgb(61, 118, 153); pointer-events: none">
-         ${tagsString}
-       </div>
-       <div class="mb-1">
-         <a href=${"/artworks/" + work.id}
-          target="_blank" rel="noreferrer"
-          style="font-weight: bold; color: ${textColor};">
-          ${work.title}
-          </a>
-       </div>
-       <div class="mb-4">
-        <a href=${"/users/" + work["userId"]}  target="_blank" rel="noreferrer"
-          style="rgba(0, 0, 0, 0.64)">
-          <img
-            src=${work["profileImageUrl"]} alt="profile" class="rounded-circle"
-            style="width: 24px; height: 24px; margin-right: 4px"
-          />
-          ${work["userName"]}
-        </a>
-       </div>
-      `;
-        resultsDiv.appendChild(container);
+        displayWork(work, resultsDiv, textColor);
       }
     }
   } while (searchOffset < totalBookmarks && index < searchBatch);
@@ -788,6 +756,336 @@ No Result
   window.runFlag = false;
 }
 
+function displayWork(work, resultsDiv, textColor) {
+  const tagsString = work.tags
+    .slice(0, 6)
+    .map((i) => "#" + i)
+    .join(" ");
+  const container = document.createElement("div");
+  const profile =
+    work["profileImageUrl"] ||
+    "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
+  container.className = "col-4 col-lg-3 col-xl-2 p-1";
+  container.innerHTML = `
+       <div class="mb-1 position-relative">
+         <img src=${work.url} alt="square" class="rounded-3 img-fluid" />
+         <div class="position-absolute w-100" style="pointer-events: none; top: 0;">
+           <div class="p-1 d-flex">
+             <div class="rate-icon d-none">R-18</div>
+             <div class="ms-auto page-icon d-none">
+               <span class="gbNjFx">
+                 <svg viewBox="0 0 9 10" width="9" height="9" class="sc-14heosd-1 fArvVr">
+                   <path d="M8,3 C8.55228475,3 9,3.44771525 9,4 L9,9 C9,9.55228475 8.55228475,10 8,10 L3,10 C2.44771525,10 2,9.55228475 2,9 L6,9 C7.1045695,9 8,8.1045695 8,7 L8,3 Z M1,1 L6,1    C6.55228475,1 7,1.44771525 7,2 L7,7 C7,7.55228475 6.55228475,8 6,8 L1,8 C0.44771525,8    0,7.55228475 0,7 L0,2 C0,1.44771525 0.44771525,1 1,1 Z" transform=""></path>
+                 </svg>
+               </span>
+               <span class="ms-1 page-count">${work["pageCount"]}</span>
+             </div>
+           </div>
+         </div>
+       </div>
+       <div class="mb-1" style="font-size: 10px; color: rgb(61, 118, 153); pointer-events: none">
+         ${tagsString}
+       </div>
+       <div class="mb-1">
+         <a href=${"/artworks/" + work.id}
+          target="_blank" rel="noreferrer"
+          style="font-weight: bold; color: ${textColor};">
+          ${work.title}
+          </a>
+       </div>
+       <div class="mb-4">
+        <a href=${"/users/" + work["userId"]}  target="_blank" rel="noreferrer"
+          style="rgba(0, 0, 0, 0.64)">
+          <img
+            src=${profile} alt="profile" class="rounded-circle"
+            style="width: 24px; height: 24px; margin-right: 4px"
+          />
+          ${work["userName"]}
+        </a>
+       </div>
+      `;
+  if (work["xRestrict"])
+    container.querySelector(".rate-icon").classList.remove("d-none");
+  if (work["pageCount"] > 1)
+    container.querySelector(".page-icon").classList.remove("d-none");
+  container.firstElementChild.addEventListener("click", (evt) =>
+    galleryMode(evt, work)
+  );
+  resultsDiv.appendChild(container);
+}
+
+function galleryMode(evt, work) {
+  const modal = evt.path.find((el) => el.id.includes("modal"));
+  const scrollTop = modal.scrollTop;
+  const dialog = evt.path.find((el) => el.className.includes("modal-dialog"));
+  dialog.classList.add("modal-fullscreen");
+  const title = dialog.querySelector(".modal-header");
+  const body = dialog.querySelector(".modal-body");
+  const footer = dialog.querySelector(".modal-footer");
+  const gallery = modal.querySelector(".gallery");
+  const works = modal.id === "search_modal" ? searchResults : generatedResults;
+  let index = works.findIndex((w) => w === work);
+  const host = "https://i.pximg.net/img-master";
+  gallery.innerHTML = `
+    <div class="p-2">
+      <div class="images my-2" style="min-height: calc(100vh - 4.5rem);"></div>
+      <button class="btn btn-outline-secondary w-100 d-none" id="gallery_all">查看全部 / See All</button>
+      <button class="btn p-0 opacity-50 position-fixed" style="left: 2rem; top: 2rem;" id="gallery_exit">
+        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" class="bi bi-x-lg" viewBox="0 0 16 16">
+          <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8 2.146 2.854Z"/>
+        </svg>
+      </button>
+      <a class="position-fixed" style="left: 2rem; top: 7rem;" target="_blank" rel="noreferrer" id="gallery_link">
+        <button class="btn p-0 opacity-50">
+          <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" class="bi bi-arrow-up-right" viewBox="0 0 16 16">
+            <path fill-rule="evenodd" d="M14 2.5a.5.5 0 0 0-.5-.5h-6a.5.5 0 0 0 0 1h4.793L2.146 13.146a.5.5 0 0 0 .708.708L13 3.707V8.5a.5.5 0 0 0 1 0v-6z"/>
+          </svg>
+        </button>
+      </a>
+      <button class="btn p-0 opacity-50 position-fixed" style="left: 2rem; top: 50vh; transform: translateY(-50%);" id="gallery_left">
+        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" class="bi bi-chevron-double-left" viewBox="0 0 16 16">
+          <path fill-rule="evenodd" d="M8.354 1.646a.5.5 0 0 1 0 .708L2.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+          <path fill-rule="evenodd" d="M12.354 1.646a.5.5 0 0 1 0 .708L6.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+        </svg>
+      </button>
+      <button class="btn p-0 opacity-50 position-fixed" style="right: 2rem; top: 50vh; transform: translateY(-50%);" id="gallery_right">
+        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" class="bi bi-chevron-double-right" viewBox="0 0 16 16">
+          <path fill-rule="evenodd" d="M3.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L9.293 8 3.646 2.354a.5.5 0 0 1 0-.708z"/>
+          <path fill-rule="evenodd" d="M7.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L13.293 8 7.646 2.354a.5.5 0 0 1 0-.708z"/>
+        </svg>
+      </button>
+    </div>
+  `;
+  const imageContainer = gallery.querySelector(".images");
+  const all = gallery.querySelector("#gallery_all");
+
+  let pageIndex = 0,
+    pageLoaded = false,
+    masterUrl;
+  function updateWork(work) {
+    masterUrl = work.url.includes("limit_unknown")
+      ? work.url
+      : host +
+        work.url
+          .match(/\/img\/.*/)[0]
+          .replace(/_(custom|square)1200/, "_master1200");
+    imageContainer.innerHTML = `
+      <div class="text-center">
+        <img class="gallery-image mb-2" src=${masterUrl} alt="master">
+      </div>
+    `;
+    gallery.querySelector("#gallery_link").href = "/artworks/" + work.id;
+    pageIndex = 0;
+    pageLoaded = false;
+    if (work["pageCount"] > 1) all.classList.remove("d-none");
+    else all.classList.add("d-none");
+  }
+  updateWork(work);
+
+  function loadAll() {
+    const work = works[index];
+    [...Array(work["pageCount"] - 1).keys()].forEach((i) => {
+      const p = i + 1;
+      const url = masterUrl.replace("_p0_", `_p${p}_`);
+      const div = document.createElement("div");
+      div.className = "text-center";
+      div.innerHTML = `<img class="gallery-image mb-2" src=${url} alt="page${p}">`;
+      imageContainer.appendChild(div);
+    });
+    all.classList.add("d-none");
+    pageLoaded = true;
+  }
+  all.addEventListener("click", loadAll);
+
+  gallery.querySelector("#gallery_exit").addEventListener("click", () => {
+    dialog.classList.remove("modal-fullscreen");
+    gallery.classList.add("d-none");
+    title.classList.remove("d-none");
+    body.classList.remove("d-none");
+    footer.classList.remove("d-none");
+    modal.removeEventListener("keyup", fnKey);
+    modal.scrollTo({ top: scrollTop, behavior: "smooth" });
+  });
+
+  function preFetch(work) {
+    const url = work.url.includes("limit_unknown")
+      ? work.url
+      : host +
+        work.url
+          .match(/\/img\/.*/)[0]
+          .replace(/_(custom|square)1200/, "_master1200");
+    const img = new Image();
+    img.src = url;
+  }
+  function prev() {
+    if (works[index - 1]) {
+      index--;
+      updateWork(works[index]);
+      if (works[index - 1]) preFetch(works[index - 1]);
+    }
+  }
+  function next() {
+    if (works[index + 1]) {
+      index++;
+      updateWork(works[index]);
+      if (works[index + 1]) preFetch(works[index + 1]);
+    }
+  }
+  function up() {
+    if (!pageLoaded) return;
+    const scrollY = gallery.scrollTop;
+    pageIndex = Math.max(0, pageIndex - 1);
+    const elemTop =
+      imageContainer.children[pageIndex].getBoundingClientRect().top;
+    gallery.scrollTo({ top: scrollY + elemTop });
+  }
+  function down() {
+    if (!pageLoaded) return loadAll();
+    const scrollY = gallery.scrollTop;
+    pageIndex = Math.min(pageIndex + 1, works[index]["pageCount"] - 1);
+    const elemTop =
+      imageContainer.children[pageIndex].getBoundingClientRect().top;
+    gallery.scrollTo({ top: scrollY + elemTop });
+  }
+  function fnKey(evt) {
+    if (evt.key === "ArrowLeft") prev();
+    else if (evt.key === "ArrowRight") next();
+    else if (evt.key === "ArrowUp") up();
+    else if (evt.key === "ArrowDown") down();
+  }
+  gallery.querySelector("#gallery_left").addEventListener("click", prev);
+  gallery.querySelector("#gallery_right").addEventListener("click", next);
+  modal.addEventListener("keyup", fnKey);
+
+  gallery.classList.remove("d-none");
+  title.classList.add("d-none");
+  body.classList.add("d-none");
+  footer.classList.add("d-none");
+}
+
+let prevTag,
+  prevRestriction,
+  totalAvailable,
+  generatorBookmarks,
+  generatedResults,
+  generatorDisplayLimit,
+  generatorBatchNum;
+async function handleGenerate(evt) {
+  evt.preventDefault();
+  const tag = document.querySelector("#generator_select_tag").value;
+  const batchSize = Math.max(
+    0,
+    parseInt(document.querySelector("#generator_form_num").value) || 100
+  );
+  const publicationType = document.querySelector(
+    "#generator_form_publication"
+  ).value;
+  const restriction = document.querySelector(
+    "#generator_form_restriction"
+  ).value;
+  console.log(tag, batchSize, publicationType, restriction);
+
+  const resultsDiv = document.querySelector("#generator_results");
+  while (resultsDiv.firstChild) {
+    resultsDiv.removeChild(resultsDiv.firstChild);
+  }
+
+  const display = document.querySelector("#generator_display");
+  display.classList.remove("d-none");
+  const prompt = document.querySelector("#generator_save_tag_prompt");
+  if (prevTag !== tag || !generatorBookmarks?.length) {
+    prevTag = tag;
+    prevRestriction = null;
+    generatorDisplayLimit = 12;
+    generatorBookmarks = [];
+    generatorBatchNum = -1;
+    let offset = 0,
+      total = 0;
+    window.runFlag = true;
+    prompt.classList.remove("d-none");
+    prompt.innerText =
+      "正在加载收藏夹信息，点击停止可中断运行 / Loading bookmarks, Click stop to abort";
+    do {
+      if (!window.runFlag) break;
+      const bookmarks = await fetchBookmarks(uid, tag, offset, publicationType);
+      if (!total) {
+        total = bookmarks.total;
+        prompt.innerText = `正在加载收藏夹信息（${total}），点击停止可中断运行 / Loading bookmarks (${total}), Click stop to abort`;
+      }
+      generatorBookmarks.push(...bookmarks.works);
+      offset = generatorBookmarks.length;
+    } while (offset < total);
+    prompt.classList.add("d-none");
+    window.runFlag = false;
+    shuffle(generatorBookmarks);
+  }
+  if (prevRestriction !== restriction) {
+    prevRestriction = restriction;
+    generatorBatchNum = -1;
+    if (restriction !== "all") {
+      generatorBookmarks.forEach((w) => {
+        w.used = !!(
+          (restriction === "sfw" && w["xRestrict"]) ||
+          (restriction === "nsfw" && !w["xRestrict"])
+        );
+      });
+    }
+    totalAvailable = generatorBookmarks.filter((w) => !w.used).length;
+    document.querySelector("#generator_spinner").classList.add("d-none");
+    console.log(generatorBookmarks);
+  }
+  if (!totalAvailable) {
+    display.classList.add("d-none");
+    prompt.innerText = "图片加载失败 / Image Loading Failed";
+    return;
+  }
+  document.querySelector("#generator_form_buttons").classList.remove("d-none");
+
+  let availableBookmarks = generatorBookmarks.filter((w) => !w.used);
+  if (generatorBookmarks.length && !availableBookmarks.length) {
+    generatorBatchNum = -1;
+    generatorBookmarks.forEach((w) => {
+      if (
+        (restriction === "sfw" && !w["xRestrict"]) ||
+        (restriction === "nsfw" && w["xRestrict"])
+      )
+        w.used = false;
+    });
+    availableBookmarks = generatorBookmarks.filter((w) => !w.used);
+  }
+  generatorBatchNum++;
+
+  const textColor = theme ? "rgba(0, 0, 0, 0.88)" : "rgba(255, 255, 255, 0.88)";
+  generatedResults = availableBookmarks.slice(0, batchSize);
+  generatedResults.forEach((w) => (w.used = true));
+  generatedResults
+    .filter((_, i) => i < generatorDisplayLimit)
+    .forEach((w) => displayWork(w, resultsDiv, textColor));
+  if (generatedResults.length > generatorDisplayLimit) {
+    document.querySelector("#generator_more").classList.remove("d-none");
+  }
+  document.querySelector(
+    "#generator_prompt"
+  ).innerText = `当前批次 / Batch Num: ${generatorBatchNum} | 当前展示 / Display: ${generatedResults.length} / ${totalAvailable}`;
+}
+
+function shuffle(array) {
+  let currentIndex = array.length,
+    randomIndex;
+  // while there remain elements to shuffle.
+  while (currentIndex !== 0) {
+    // pick a remaining element.
+    randomIndex = Math.floor(Math.random() * currentIndex);
+    currentIndex--;
+    // swap it with the current element.
+    [array[currentIndex], array[randomIndex]] = [
+      array[randomIndex],
+      array[currentIndex],
+    ];
+  }
+  return array;
+}
+
 function createModalElements() {
   const bgColor = theme ? "bg-white" : "bg-dark";
   const textColor = theme ? "text-lp-dark" : "text-lp-light";
@@ -811,10 +1109,10 @@ function createModalElements() {
     color: inherit;
     background: inherit;
   }
-  .modal::-webkit-scrollbar {
+  .modal::-webkit-scrollbar, .no-scroll::-webkit-scrollbar {
     display: none; /* Chrome */
   }
-  .modal {
+  .modal, .no-scroll {
     -ms-overflow-style: none;  /* IE and Edge */
     scrollbar-width: none;  /* Firefox */
   }
@@ -822,6 +1120,48 @@ function createModalElements() {
     background: none;
     height: initial;
     width: initial;
+  }
+  .gallery-image {
+    max-height: calc(100vh - 5rem);
+  }
+  .rate-icon {
+    padding: 0px 6px;
+    border-radius: 3px;
+    color: rgb(245, 245, 245);
+    background: rgb(255, 64, 96);
+    font-weight: bold;
+    font-size: 10px;
+    line-height: 16px;
+    user-select: none;
+    height: 16px;
+  }
+  .page-icon {
+    display: flex;
+    -webkit-box-pack: center;
+    justify-content: center;
+    -webkit-box-align: center;
+    align-items: center;
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    height: 20px;
+    min-width: 20px;
+    color: rgb(245, 245, 245);
+    font-weight: bold;
+    padding: 0px 6px;
+    background: rgba(0, 0, 0, 0.32);
+    border-radius: 10px;
+    font-size: 10px;
+    line-height: 10px;
+  }
+  .page-icon:first-child {
+    display: inline-flex;
+    vertical-align: top;
+    -webkit-box-align: center;
+    align-items: center;
+    height: 10px;
+  }
+  #gallery_link:hover {
+    color: var(--bs-btn-hover-color);
   }
   `);
   // noinspection TypeScriptUMDGlobal
@@ -891,7 +1231,7 @@ function createModalElements() {
                 data-bs-target="#edit_synonym_dict">&#9658; 编辑词典 / Edit Dict</button>
               <div class="mb-3 collapse" id="edit_synonym_dict">
                 <label class="form-label fw-light" for="target_tag">目标标签（用户标签） / Target Tag (User Tag)</label>
-                <input class="form-control mb-3" type="text" id="target_tag" placeholder="eg: 新世紀エヴァンゲリオン">
+                <input class="form-control mb-3" type="text" id="target_tag" placeholder="eg: 新世紀エヴァンゲリオン" />
                 <label class="form-label fw-light" for="tag_alias">同义词（作品标签，空格/回车分割，不区分大小写） / Alias (From Artwork, Space/Line Delimited, Case-Insensitive)</label>
                 <textarea class="form-control mb-3" rows="2" id="tag_alias" style="min-height: initial" placeholder="eg: エヴァンゲリオン evangelion eva"></textarea>
                 <div class="mb-3" style="display: none" >
@@ -910,7 +1250,7 @@ function createModalElements() {
                 data-bs-target="#preview_synonym_dict">&#9658; 预览词典 / Preview Dict</button>
               <div class="mb-3 collapse show" id="preview_synonym_dict">
                 <div class="mb-2 position-relative">
-                  <input type="text" class="form-control mb-2" id="synonym_filter" placeholder="筛选 / Filter">
+                  <input type="text" class="form-control mb-2" id="synonym_filter" placeholder="筛选 / Filter" />
                   <button type="button" class="position-absolute btn btn-close end-0 top-50 translate-middle" id="clear_synonym_filter"/>
                 </div>
                 <div id="synonym_preview" class="border py-1 px-3" style="white-space: pre-wrap; min-height: 100px; max-height: 30vh; overflow-y: scroll"></div>
@@ -1013,6 +1353,7 @@ function createModalElements() {
   popupSearch.tabIndex = -1;
   popupSearch.innerHTML = `
     <div class="modal-dialog modal-xl d-flex flex-column ${bgColor} ${textColor}" style="pointer-events: initial">
+      <div class="gallery overflow-auto no-scroll flex-grow-1 d-none"></div>
       <div class="modal-header">
         <h5 class="modal-title">搜索图片标签 / Search Bookmarks</h5>
         <button class="btn btn-close btn-close-empty ms-auto" id="search_pin">${defaultPinConfig}</button>
@@ -1077,9 +1418,9 @@ function createModalElements() {
           <div class="flex-grow-1">
             <div class="position-absolute start-50 top-50 spinner-border text-secondary" style="display: none" id="spinner">
             </div>
-            <div class="row" id="search_results"/></div>
+            <div class="row" id="search_results"></div>
             <div class="mb-2 text-end" id="search_prompt"></div>
-            <button class="btn btn-outline-primary w-100 py-1" style="display: none;" id="search_more">继续搜索 / Search More</button>
+            <button class="btn btn-outline-secondary w-100 py-1" style="display: none;" id="search_more">继续搜索 / Search More</button>
           </div>
       </form>
       <div class="modal-footer">
@@ -1110,8 +1451,8 @@ function createModalElements() {
   });
 
   const clearBookmarkTagsModal = document.createElement("div");
-  clearBookmarkTagsModal.id = "clear_tags_modal";
   clearBookmarkTagsModal.className = "modal fade";
+  clearBookmarkTagsModal.id = "clear_tags_modal";
   clearBookmarkTagsModal.setAttribute("data-bs-backdrop", "static");
   clearBookmarkTagsModal.tabIndex = -1;
   clearBookmarkTagsModal.innerHTML = `
@@ -1132,10 +1473,191 @@ function createModalElements() {
     </div>
   `;
 
+  const generatorModal = document.createElement("div");
+  generatorModal.className = "modal fade";
+  generatorModal.id = "generator_modal";
+  generatorModal.tabIndex = -1;
+  generatorModal.innerHTML = `
+    <div class="modal-dialog modal-xl d-flex flex-column ${bgColor} ${textColor}" style="pointer-events: initial">
+      <div class="gallery overflow-auto no-scroll flex-grow-1 d-none"></div>
+      <div class="modal-header">
+        <h5 class="modal-title">展示随机图片 / Display Shuffled Images</h5>
+        <button class="btn btn-close btn-close-empty ms-auto" id="generator_pin">${defaultPinConfig}</button>
+        <button class="btn btn-close btn-close-empty ms-3" data-bs-dismiss="modal">${svgClose}</button>
+      </div>
+      <div class="modal-body flex-grow-1 d-flex flex-column p-4 no-scroll">
+        <div class="mb-4 flex-grow-1 d-none" id="generator_display">
+          <div class="position-relative mb-4" style="height: 3rem" id="generator_spinner"><div class="position-absolute start-50 top-50 spinner-border text-secondary"></div></div>
+          <div class="row" id="generator_results"></div>
+          <button class="btn btn-outline-secondary w-100 py-1 d-none" id="generator_more">显示更多 / More</button>
+          <div class="mt-3 text-end" id="generator_prompt"></div>
+          <hr class="mt-4" />
+        </div>
+        <div>
+          <label class="form-label mb-3">
+            选择已收藏的标签，填写批量大小等参数后，点击<strong>生成</strong>按钮生成数组随机图片。
+            点击<strong>保存至新标签</strong>可以按批次保存至临时标签，随后可以修改标签名称。
+            <br />
+            点击缩略图进入鉴赏模式，可以使用上下左右方向键切换浏览的图片，点击左上角X按钮回到原模式。
+            <br />
+            本功能可以用来随机浏览收藏的图片，或是将较大的收藏标签切分为数个较小的收藏标签。本页面仍在开发阶段，欢迎留言。
+            <br />
+            Select a tag you have bookmarked and set batch size and other configs before generating.
+            Click on <strong>Generate</strong> to get batches of shuffled images. Click on <strong>Save to Tag</strong>
+            will add a temperate tag to each batch that you can edit later.
+            <br />
+            Click on the thumbnail to enter gallery mode, where you can use four arrow key to switch between pages. Click the X on the top left to exit gallery mode.
+            <br />
+            This function is used to view random images, or slice a big tag into smaller ones. This page is in development and suggestions are welcomed.
+          </label>
+          <form class="mb-3" id="generator_form">
+            <select class="mb-3 form-select select-custom-tags flex-grow-1 ${bgColor}" id="generator_select_tag">
+              <option value="">所有收藏 / All Works</option>
+            </select>
+            <div class="row">
+              <div class="col-4">
+                <label for="generator_form_num" class="form-label fw-light">批量大小 / Batch Size</label>
+                <input type="text" class="form-control me-3" value="100" id="generator_form_num" />
+              </div>
+              <div class="col-4">
+                <label for="generator_form_publication" class="form-label fw-light">作品公开类型 / Publication Type</label>
+                <select class="form-select ${bgColor}" id="generator_form_publication">
+                  <option value="show">公开收藏 / Public</option>
+                  <option value="hide">私密收藏 / Private</option>
+                </select>
+              </div>
+              <div class="col-4">
+                <label for="generator_form_restriction" class="form-label fw-light">作品限制类型 / Restriction Type</label>
+                <select class="form-select ${bgColor}" id="generator_form_restriction">
+                  <option value="all">全部作品 / All</option>
+                  <option value="sfw">全年龄 / SFW</option>
+                  <option value="nsfw">非全年龄 / NSFW</option>
+                </select>
+              </div>
+            </div>
+            <div class="mt-3 d-flex d-none" id="generator_form_buttons">
+              <button type="button" class="btn btn-outline-primary me-auto">清除搜索 / Clear</button>
+              <button type="button" class="btn btn-outline-primary">保存至标签 / Save to Tag</button>
+              <button class="btn btn-outline-primary d-none">生成 / Generate</button>
+            </div>
+          </form>
+          <div class="my-3 fw-bold text-center d-none" id="generator_save_tag_prompt"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary me-auto" data-bs-dismiss="modal">关闭 / Close</button>
+        <button type="button" class="btn btn-outline-danger me-3" id="generator_footer_stop">停止 / Stop</button>
+        <button type="button" class="btn btn-outline-primary" id="generator_footer_button">加载 / Load</button>
+      </div>
+    </div>
+  `;
+  generatorModal.setAttribute(
+    "data-bs-backdrop",
+    backdropConfig ? "static" : "true"
+  );
+  const generatorPin = generatorModal.querySelector("#generator_pin");
+  generatorPin.addEventListener("click", () => {
+    const ins = bootstrap_.Modal.getOrCreateInstance(generatorModal);
+    const backdrop = ins["_config"]["backdrop"] === "static";
+    if (backdrop) {
+      ins["_config"]["backdrop"] = true;
+      setValue("backdropConfig", "false");
+      generatorPin.innerHTML = svgUnpin;
+    } else {
+      ins["_config"]["backdrop"] = "static";
+      setValue("backdropConfig", "true");
+      generatorPin.innerHTML = svgPin;
+    }
+  });
+  const generatorButtons = generatorModal
+    .querySelector("#generator_form_buttons")
+    .querySelectorAll("button");
+  generatorButtons[0].addEventListener("click", () => {
+    generatedResults = null;
+    generatorBookmarks.forEach((w) => (w.used = true));
+    generatorDisplayLimit = 12;
+    document.querySelector("#generator_form_buttons").classList.add("d-none");
+    document.querySelector("#generator_display").classList.add("d-none");
+    document.querySelector("#generator_spinner").classList.add("d-none");
+    document.querySelector("#generator_more").classList.add("d-none");
+    const resultsDiv = document.querySelector("#generator_results");
+    while (resultsDiv.firstChild) {
+      resultsDiv.removeChild(resultsDiv.firstChild);
+    }
+  });
+  generatorButtons[1].addEventListener("click", async () => {
+    window.runFlag = true;
+    const tag = document.querySelector("#generator_select_tag").value;
+    const restriction = document.querySelector(
+      "#generator_form_restriction"
+    ).value;
+    const availableBookmarks = generatorBookmarks.filter(
+      (w) =>
+        restriction === "all" ||
+        (restriction === "sfw" && !w["xRestrict"]) ||
+        (restriction === "nsfw" && w["xRestrict"])
+    );
+    const batchSize = Math.max(
+      0,
+      parseInt(document.querySelector("#generator_form_num").value) || 100
+    );
+    const batchNum = Math.ceil(availableBookmarks.length / batchSize);
+    const prompt = document.querySelector("#generator_save_tag_prompt");
+    prompt.classList.remove("d-none");
+    for (let index of [...Array(batchNum).keys()]) {
+      if (!window.runFlag) break;
+      const addTag = `S_${index}_${tag}`.slice(0, 30);
+      prompt.innerText = `正在保存至 ${addTag} / Saving to ${addTag}`;
+      const ids = availableBookmarks
+        .slice(index * batchSize, (index + 1) * batchSize)
+        .map((w) => w["bookmarkData"]["id"]);
+      // console.log(addTag, ids);
+      if (ids.length) {
+        const num = Math.ceil(ids.length / 96);
+        for (let i of [...Array(num).keys()]) {
+          await updateBookmarkTags(
+            ids.filter((_, j) => j >= i * 96 && j < (i + 1) * 96),
+            [addTag]
+          );
+        }
+      }
+    }
+    window.runFlag = false;
+    prompt.classList.add("d-none");
+  });
+  generatorModal
+    .querySelector("#generator_footer_button")
+    .addEventListener("click", () => generatorButtons[2].click());
+  generatorModal
+    .querySelector("#generator_footer_stop")
+    .addEventListener("click", () => {
+      window.runFlag = false;
+      document
+        .querySelector("#generator_save_tag_prompt")
+        .classList.add("d-none");
+    });
+  generatorModal
+    .querySelector("#generator_more")
+    .addEventListener("click", (evt) => {
+      const resultsDiv = document.querySelector("#generator_results");
+      const s = resultsDiv.childElementCount;
+      const textColor = theme
+        ? "rgba(0, 0, 0, 0.88)"
+        : "rgba(255, 255, 255, 0.88)";
+      generatorDisplayLimit += 108;
+      if (generatorDisplayLimit >= generatedResults.length) {
+        evt.target.classList.add("d-none");
+      }
+      generatedResults
+        .filter((_, i) => i >= s && i < generatorDisplayLimit)
+        .forEach((w) => displayWork(w, resultsDiv, textColor));
+    });
+
   const body = document.querySelector("body");
   body.appendChild(popupLabel);
   body.appendChild(popupSearch);
   body.appendChild(clearBookmarkTagsModal);
+  body.appendChild(generatorModal);
 }
 
 async function fetchUserTags() {
@@ -1257,7 +1779,9 @@ async function injectElements() {
   const buttonContainer = document.createElement("span");
   buttonContainer.className = "flex-grow-1 justify-content-end d-flex";
   buttonContainer.id = "label_bookmarks_buttons";
+  const gClass = generator ? "" : "d-none";
   buttonContainer.innerHTML = `
+        <button class="label-button ${textColor} ${gClass}" data-bs-toggle="modal" data-bs-target="#generator_modal" id="generator_modal_button"/>
         <button class="label-button ${textColor}" data-bs-toggle="modal" data-bs-target="#search_modal" id="search_modal_button"/>
         <button class="label-button ${textColor}" data-bs-toggle="modal" data-bs-target="#label_modal" id="label_modal_button"/>
       `;
@@ -1517,12 +2041,15 @@ function setElementProperties() {
   // label buttons
   const labelButton = document.querySelector("#label_modal_button");
   const searchButton = document.querySelector("#search_modal_button");
+  const generatorButton = document.querySelector("#generator_modal_button");
   if (lang.includes("zh")) {
     labelButton.innerText = "添加标签";
     searchButton.innerText = "搜索图片";
+    generatorButton.innerText = "随机图片";
   } else {
     labelButton.innerText = "Label";
     searchButton.innerText = "Search";
+    generatorButton.innerText = "Shuffle";
   }
   addStyle(
     `.label-button {
@@ -1589,6 +2116,10 @@ function setElementProperties() {
   const searchMore = document.querySelector("#search_more");
   const footerSearch = document.querySelector("#footer_search_button");
   footerSearch.onclick = () => searchMore.click();
+
+  // generator form
+  const generatorForm = document.querySelector("#generator_form");
+  generatorForm.onsubmit = handleGenerate;
 
   document
     .querySelector("#stop_remove_tag_button")
@@ -1905,9 +2436,24 @@ function setAdvancedSearch() {
   basic.appendChild(generateBasicField());
 }
 
+function registerMenu() {
+  generator = getValue("showGenerator", "false") === "true";
+  if (generator)
+    GM_registerMenuCommand_("隐藏随机图片 / Hide Shuffle Generator", () => {
+      setValue("showGenerator", "false");
+      window.location.reload();
+    });
+  else
+    GM_registerMenuCommand_("显示随机图片 / Show Shuffle Generator", () => {
+      setValue("showGenerator", "true");
+      window.location.reload();
+    });
+}
+
 (function () {
   "use strict";
   loadResources();
+  registerMenu();
   waitForDom("nav")
     .then(initializeVariables)
     .then(createModalElements)
