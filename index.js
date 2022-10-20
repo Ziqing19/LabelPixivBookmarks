@@ -20,7 +20,15 @@
 
 // ==/UserScript==
 
-let uid, token, lang, userTags, synonymDict, pageInfo, theme, generator;
+let uid,
+  token,
+  lang,
+  userTags,
+  synonymDict,
+  pageInfo,
+  theme,
+  generator,
+  feature;
 // noinspection TypeScriptUMDGlobal,JSUnresolvedVariable
 let unsafeWindow_ = unsafeWindow,
   GM_getValue_ = GM_getValue,
@@ -190,190 +198,285 @@ async function fetchBookmarks(uid, tagToQuery, offset, publicationType) {
   const bookmarksRes = await bookmarksRaw.json();
   if (!bookmarksRaw.ok || bookmarksRes.error === true) {
     return alert(
-      `获取用户收藏夹列表失败
-Fail to fetch user bookmarks\n` + decodeURI(bookmarksRes.message)
+      `获取用户收藏夹列表失败\nFail to fetch user bookmarks\n` +
+        decodeURI(bookmarksRes.message)
     );
   } else return bookmarksRes.body;
 }
 
-async function updateBookmarkTags(bookmarkIds, tags, removeTags) {
-  if (tags && tags.length) {
-    await fetch("/ajax/illusts/bookmarks/add_tags", {
-      headers: {
-        accept: "application/json",
-        "content-type": "application/json; charset=utf-8",
-        "x-csrf-token": token,
-      },
-      body: JSON.stringify({ tags, bookmarkIds }),
-      method: "POST",
-    });
-    await delay(500);
+async function fetchAllBookmarksByTag(
+  tag,
+  publicationType,
+  progressBar,
+  max = 100
+) {
+  let total = 65535,
+    offset = 0,
+    totalWorks = [];
+  do {
+    if (!window.runFlag) break;
+    const bookmarks = await fetchBookmarks(uid, tag, offset, publicationType);
+    total = bookmarks.total;
+    const works = bookmarks["works"];
+    works.forEach(
+      (w) =>
+        (w.associatedTags =
+          bookmarks["bookmarkTags"][w["bookmarkData"]["id"]] || [])
+    );
+    totalWorks.push(...works);
+    offset = totalWorks.length;
+    if (progressBar) {
+      progressBar.innerText = offset + "/" + total;
+      const ratio = ((offset / total) * max).toFixed(2);
+      progressBar.style.width = ratio + "%";
+    }
+  } while (offset < total);
+  return totalWorks;
+}
+
+async function updateBookmarkTags(bookmarkIds, addTags, removeTags) {
+  if (!bookmarkIds?.length)
+    throw new TypeError("BookmarkIds is undefined or empty array");
+  if (!Array.isArray(addTags) && !Array.isArray(removeTags))
+    throw new TypeError("Either addTags or removeTags should be valid array");
+  async function run(ids) {
+    if (addTags && addTags.length) {
+      await fetch("/ajax/illusts/bookmarks/add_tags", {
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json; charset=utf-8",
+          "x-csrf-token": token,
+        },
+        body: JSON.stringify({ tags: addTags, bookmarkIds: ids }),
+        method: "POST",
+      });
+      await delay(500);
+    }
+    if (removeTags && removeTags.length) {
+      await fetch("/ajax/illusts/bookmarks/remove_tags", {
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json; charset=utf-8",
+          "x-csrf-token": token,
+        },
+        body: JSON.stringify({ removeTags, bookmarkIds: ids }),
+        method: "POST",
+      });
+      await delay(500);
+    }
   }
-  if (removeTags && removeTags.length) {
-    await fetch("/ajax/illusts/bookmarks/remove_tags", {
-      headers: {
-        accept: "application/json",
-        "content-type": "application/json; charset=utf-8",
-        "x-csrf-token": token,
-      },
-      body: JSON.stringify({ removeTags, bookmarkIds }),
-      method: "POST",
-    });
-    await delay(500);
+  const num = Math.ceil(bookmarkIds.length / bookmarkBatchSize);
+  for (let i of [...Array(num).keys()]) {
+    if (!window.runFlag) break;
+    const ids = bookmarkIds.filter(
+      (_, j) => j >= i * bookmarkBatchSize && j < (i + 1) * bookmarkBatchSize
+    );
+    await run(ids);
   }
 }
 
-async function clearBookmarkTags(evt) {
-  evt.preventDefault();
-  const selected = [
-    ...document.querySelectorAll("label>div[aria-disabled='true']"),
-  ];
+async function updateBookmarkRestrict(
+  bookmarkIds,
+  bookmarkRestrict,
+  progressBar
+) {
+  if (!bookmarkIds?.length)
+    throw new TypeError("BookmarkIds is undefined or empty array");
+  if (!["public", "private"].includes(bookmarkRestrict))
+    throw new TypeError("Bookmark restrict should be public or private");
+  async function run(ids) {
+    await fetch("/ajax/illusts/bookmarks/edit_restrict", {
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json; charset=utf-8",
+        "x-csrf-token": token,
+      },
+      body: JSON.stringify({ bookmarkIds: ids, bookmarkRestrict }),
+      method: "POST",
+    });
+    await delay(500);
+  }
+  const num = Math.ceil(bookmarkIds.length / bookmarkBatchSize);
+  for (let i of [...Array(num).keys()]) {
+    if (!window.runFlag) break;
+    const ids = bookmarkIds.filter(
+      (_, j) => j >= i * bookmarkBatchSize && j < (i + 1) * bookmarkBatchSize
+    );
+    await run(ids);
+    if (progressBar) {
+      const offset = i * bookmarkBatchSize;
+      progressBar.innerText = offset + "/" + bookmarkIds.length;
+      const ratio = (offset / bookmarkIds.length).toFixed(2);
+      progressBar.style.width = ratio + "%";
+    }
+  }
+  if (progressBar) {
+    progressBar.innerText = bookmarkIds.length + "/" + bookmarkIds.length;
+    progressBar.style.width = "100%";
+  }
+}
+
+async function clearBookmarkTags(works) {
+  if (!works?.length) {
+    return alert(
+      `没有获取到收藏夹内容，操作中断，请检查选项下是否有作品\nFetching bookmark information failed. Abort operation. Please check the existence of works with the configuration`
+    );
+  }
   if (
-    !selected.length ||
     !window.confirm(
-      `确定要删除所选作品的标签吗？（作品的收藏状态不会改变）
-The tags of work(s) you've selected will be removed (become uncategorized). Is this okay?`
+      `确定要删除所选作品的标签吗？（作品的收藏状态不会改变）\nThe tags of work(s) you've selected will be removed (become uncategorized). Is this okay?`
     )
   )
     return;
-
   window.runFlag = true;
-  const works = selected
-    .map((el) => {
-      const middleChild = Object.values(
-        el.parentNode.parentNode.parentNode.parentNode
-      )[0]["child"];
 
-      const work = middleChild["memoizedProps"]["work"];
-      const bookmarkId = middleChild["memoizedProps"]["bookmarkId"];
-      work.associatedTags =
-        middleChild["child"]["memoizedProps"]["associatedTags"];
-      work.bookmarkId = bookmarkId;
-      return work;
-    })
-    .filter((work) => work.associatedTags.length);
-
-  const modal = document.querySelector("#clear_tags_modal");
+  const modal = document.querySelector("#progress_modal");
   // noinspection TypeScriptUMDGlobal
   const bootstrap_ = bootstrap;
   let instance = bootstrap_.Modal.getInstance(modal);
   if (!instance) instance = new bootstrap_.Modal(modal);
   instance.show();
 
-  const prompt = document.querySelector("#clear_tags_prompt");
-  const progressBar = document.querySelector("#clear_tags_progress_bar");
+  const prompt = document.querySelector("#progress_modal_prompt");
+  const progressBar = document.querySelector("#progress_modal_progress_bar");
 
-  const total = works.length;
-  for (let index = 1; index <= total; index++) {
-    const work = works[index - 1];
-    const url = "https://www.pixiv.net/artworks/" + work.id;
-    console.log(index, work.title, work.id, url);
-    if (DEBUG) console.log(work);
+  const tagPool = Array.from(
+    new Set(works.reduce((a, b) => [...a, ...b.associatedTags], []))
+  );
+  const workLength = works.length;
+  const tagPoolSize = tagPool.length;
+  if (DEBUG) console.log(works, tagPool);
 
-    progressBar.innerText = index + "/" + total;
-    const ratio = ((index / total) * 100).toFixed(2);
-    progressBar.style.width = ratio + "%";
+  if (workLength > tagPoolSize) {
+    for (let index = 1; index <= tagPoolSize; index++) {
+      if (!window.runFlag) break;
+      const tag = tagPool[index - 1];
+      const ids = works
+        .filter((w) => w.associatedTags.includes(tag))
+        .map((w) => w.bookmarkId || w["bookmarkData"]["id"]);
+      if (DEBUG) console.log("Clearing", tag, ids);
 
-    prompt.innerText = work.alt + "\n" + work.associatedTags.join(" ");
-    await updateBookmarkTags([work.bookmarkId], undefined, work.associatedTags);
+      progressBar.innerText = index + "/" + tagPoolSize;
+      const ratio = ((index / tagPoolSize) * 100).toFixed(2);
+      progressBar.style.width = ratio + "%";
+      prompt.innerText = `正在清除标签... / Clearing bookmark tags`;
 
-    if (!window.runFlag) {
-      prompt.innerText =
-        "检测到停止信号，程序已停止运行\nStop signal detected. Program exits.";
-      progressBar.style.width = "100%";
-      break;
+      await updateBookmarkTags(ids, null, [tag]);
+    }
+  } else {
+    for (let index = 1; index <= workLength; index++) {
+      if (!window.runFlag) break;
+      const work = works[index - 1];
+      const url = "https://www.pixiv.net/artworks/" + work.id;
+      console.log(index, work.title, work.id, url);
+      if (DEBUG) console.log(work);
+
+      progressBar.innerText = index + "/" + workLength;
+      const ratio = ((index / workLength) * 100).toFixed(2);
+      progressBar.style.width = ratio + "%";
+      prompt.innerText = work.alt + "\n" + work.associatedTags.join(" ");
+
+      await updateBookmarkTags(
+        [work["bookmarkData"]["id"]],
+        undefined,
+        work.associatedTags
+      );
     }
   }
-  if (window.runFlag)
-    prompt.innerText = `标签删除完成！
-Tags Removed!`;
+
+  if (window.runFlag) prompt.innerText = `标签删除完成！\nFinish Tag Clearing!`;
+  else
+    prompt.innerText =
+      "检测到停止信号，程序已停止运行\nStop signal detected. Program exits.";
   setTimeout(() => {
     instance.hide();
-    if (window.runFlag) window.location.reload();
+    if (window.runFlag && !DEBUG) window.location.reload();
   }, 1000);
 }
 
-async function removeCurrentTag(evt) {
+async function handleClearBookmarkTags(evt) {
   evt.preventDefault();
-  const { tag, restrict } = await updateWorkInfo();
+  const selected = [
+    ...document.querySelectorAll("label>div[aria-disabled='true']"),
+  ];
+  if (!selected.length) return;
+
+  const works = selected
+    .map((el) => {
+      const middleChild = Object.values(
+        el.parentNode.parentNode.parentNode.parentNode
+      )[0]["child"];
+      const work = middleChild["memoizedProps"]["work"];
+      work.associatedTags =
+        middleChild["child"]["memoizedProps"]["associatedTags"] || [];
+      work.bookmarkId = middleChild["memoizedProps"]["bookmarkId"];
+      return work;
+    })
+    .filter((work) => work.associatedTags.length);
+  await clearBookmarkTags(works);
+}
+
+async function deleteTag(tag, publicationType) {
+  if (!tag)
+    return alert(
+      `请选择需要删除的标签\nPlease select the tag you would like to delete`
+    );
   if (
-    !tag ||
     tag === "未分類" ||
-    !window.confirm(`确定要删除所选的标签 ${tag} 吗？（作品的收藏状态不会改变）
-The tag ${tag} will be removed and works of ${tag} will keep bookmarked. Is this okay?`)
+    !window.confirm(
+      `确定要删除所选的标签 ${tag} 吗？（作品的收藏状态不会改变）\nThe tag ${tag} will be removed and works of ${tag} will keep bookmarked. Is this okay?`
+    )
   )
     return;
-
   window.runFlag = true;
-  const modal = document.querySelector("#clear_tags_modal");
+  const modal = document.querySelector("#progress_modal");
   // noinspection TypeScriptUMDGlobal
   const bootstrap_ = bootstrap;
   let instance = bootstrap_.Modal.getInstance(modal);
   if (!instance) instance = new bootstrap_.Modal(modal);
   await instance.show();
 
-  const prompt = document.querySelector("#clear_tags_prompt");
-  const progressBar = document.querySelector("#clear_tags_progress_bar");
+  const prompt = document.querySelector("#progress_modal_prompt");
+  const progressBar = document.querySelector("#progress_modal_progress_bar");
 
-  let total = 9999,
-    offset = 0,
-    totalBookmarks = [],
-    bookmarks = { works: [] };
-  do {
-    bookmarks = await fetchBookmarks(
-      uid,
-      tag,
-      offset,
-      restrict ? "hide" : "show"
-    );
-    total = bookmarks["total"];
-    offset += bookmarkBatchSize;
-    offset = Math.min(offset, total);
-
-    progressBar.innerText = offset + "/" + total;
-    const ratio = ((offset / total) * 90).toFixed(2);
-    progressBar.style.width = ratio + "%";
-
-    totalBookmarks = totalBookmarks.concat(bookmarks["works"]);
-
-    if (!window.runFlag) {
-      prompt.innerText =
-        "检测到停止信号，程序已停止运行\nStop signal detected. Program exits.";
-      progressBar.style.width = "100%";
-      break;
-    }
-  } while (offset < total);
-
+  const totalBookmarks = await fetchAllBookmarksByTag(
+    tag,
+    publicationType,
+    progressBar,
+    90
+  );
   console.log(totalBookmarks);
+
   if (window.runFlag) {
-    progressBar.style.width = 90 + "%";
-    prompt.innerText = `标签${tag}删除中...
-Removing Tag ${tag}
-`;
-
-    const ids = totalBookmarks.map((work) => work["bookmarkData"]["id"]);
-    if (ids.length) {
-      const batchNum = Math.ceil(ids.length / 96);
-      for (let i of [...Array(batchNum).keys()]) {
-        await updateBookmarkTags(
-          ids.filter((_, j) => j >= i * 96 && j < (i + 1) * 96),
-          undefined,
-          [tag]
-        );
-      }
-    }
-
-    progressBar.style.width = 100 + "%";
-    prompt.innerText = `标签${tag}删除完成！
-Tag ${tag} Removed!`;
+    prompt.innerText = `标签${tag}删除中...\nDeleting Tag ${tag}`;
+    progressBar.style.width = "90%";
+  } else {
+    prompt.innerText =
+      "检测到停止信号，程序已停止运行\nStop signal detected. Program exits.";
+    progressBar.style.width = "100%";
+    return;
   }
+
+  const ids = totalBookmarks.map((work) => work["bookmarkData"]["id"]);
+  await updateBookmarkTags(ids, undefined, [tag]);
+
+  progressBar.style.width = "100%";
+  if (window.runFlag)
+    prompt.innerText = `标签${tag}删除完成！\nTag ${tag} Removed!`;
+  else
+    prompt.innerText =
+      "检测到停止信号，程序已停止运行\nStop signal detected. Program exits.";
   setTimeout(() => {
     instance.hide();
-    if (window.runFlag)
-      window.location.href = `https://www.pixiv.net/users/${uid}/bookmarks/artworks?rest=${
-        restrict ? "hide" : "show"
-      }`;
+    if (window.runFlag && !DEBUG)
+      window.location.href = `https://www.pixiv.net/users/${uid}/bookmarks/artworks?rest=${publicationType}`;
   }, 1000);
+}
+
+async function handleDeleteTag(evt) {
+  evt.preventDefault();
+  const { tag, restrict } = await updateWorkInfo();
+  await deleteTag(tag, restrict ? "hide" : "show");
 }
 
 const DEBUG = false;
@@ -612,8 +715,8 @@ async function handleSearch(evt) {
     All Bookmarks Of Selected Tag Have Been Searched!
     `);
   }
-
-  document.querySelector("#spinner").style.display = "block";
+  const spinner = document.querySelector("#spinner");
+  spinner.style.display = "block";
 
   // noinspection TypeScriptUMDGlobal
   const bootstrap_ = bootstrap;
@@ -637,6 +740,7 @@ async function handleSearch(evt) {
 
   const textColor = theme ? "rgba(0, 0, 0, 0.88)" : "rgba(255, 255, 255, 0.88)";
 
+  const searchPrompt = document.querySelector("#search_prompt");
   let index = 0; // index for current search batch
   do {
     const bookmarks = await fetchBookmarks(
@@ -645,7 +749,7 @@ async function handleSearch(evt) {
       searchOffset,
       publicationType
     );
-    document.querySelector("#search_prompt").innerText = `
+    searchPrompt.innerText = `
     当前搜索进度 / Searched：${searchOffset} / ${totalBookmarks}
   `;
     if (DEBUG) console.log(bookmarks);
@@ -746,12 +850,11 @@ async function handleSearch(evt) {
   if (!searchResults.length) {
     resultsDiv.innerHTML = `
       <div class="text-center text-black-50 fw-bold py-4 ${textColor}" style="white-space: pre-wrap; font-size: 2rem" id="no_result">
-暂无结果
-No Result
+        暂无结果 / No Result
       </div>
     `;
   }
-  document.querySelector("#spinner").style.display = "none";
+  spinner.style.display = "none";
   console.log(searchResults);
   window.runFlag = false;
 }
@@ -984,6 +1087,13 @@ async function handleGenerate(evt) {
     "#generator_form_restriction"
   ).value;
   console.log(tag, batchSize, publicationType, restriction);
+  if (
+    !tag &&
+    !confirm(
+      `加载全部收藏夹需要较长时间，是否确认操作？\nLoad the whole bookmark will take quite long time to process. Is this okay?`
+    )
+  )
+    return;
 
   const resultsDiv = document.querySelector("#generator_results");
   while (resultsDiv.firstChild) {
@@ -1012,7 +1122,7 @@ async function handleGenerate(evt) {
         total = bookmarks.total;
         prompt.innerText = `正在加载收藏夹信息（${total}），点击停止可中断运行 / Loading bookmarks (${total}), Click stop to abort`;
       }
-      generatorBookmarks.push(...bookmarks.works);
+      generatorBookmarks.push(...bookmarks["works"]);
       offset = generatorBookmarks.length;
     } while (offset < total);
     prompt.classList.add("d-none");
@@ -1087,6 +1197,8 @@ function shuffle(array) {
 }
 
 function createModalElements() {
+  // noinspection TypeScriptUMDGlobal
+  const bootstrap_ = bootstrap;
   const bgColor = theme ? "bg-white" : "bg-dark";
   const textColor = theme ? "text-lp-dark" : "text-lp-light";
   addStyle(`
@@ -1164,8 +1276,6 @@ function createModalElements() {
     color: var(--bs-btn-hover-color);
   }
   `);
-  // noinspection TypeScriptUMDGlobal
-  const bootstrap_ = bootstrap;
   const backdropConfig = getValue("backdropConfig", "false") === "true";
   const svgPin = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pin" viewBox="0 0 16 16">
     <path d="M4.146.146A.5.5 0 0 1 4.5 0h7a.5.5 0 0 1 .5.5c0 .68-.342 1.174-.646 1.479-.126.125-.25.224-.354.298v4.431l.078.048c.203.127.476.314.751.555C12.36 7.775 13 8.527 13 9.5a.5.5 0 0 1-.5.5h-4v4.5c0 .276-.224 1.5-.5 1.5s-.5-1.224-.5-1.5V10h-4a.5.5 0 0 1-.5-.5c0-.973.64-1.725 1.17-2.189A5.921 5.921 0 0 1 5 6.708V2.277a2.77 2.77 0 0 1-.354-.298C4.342 1.674 4 1.179 4 .5a.5.5 0 0 1 .146-.354zm1.58 1.408-.002-.001.002.001zm-.002-.001.002.001A.5.5 0 0 1 6 2v5a.5.5 0 0 1-.276.447h-.002l-.012.007-.054.03a4.922 4.922 0 0 0-.827.58c-.318.278-.585.596-.725.936h7.792c-.14-.34-.407-.658-.725-.936a4.915 4.915 0 0 0-.881-.61l-.012-.006h-.002A.5.5 0 0 1 10 7V2a.5.5 0 0 1 .295-.458 1.775 1.775 0 0 0 .351-.271c.08-.08.155-.17.214-.271H5.14c.06.1.133.191.214.271a1.78 1.78 0 0 0 .37.282z"/>
@@ -1179,11 +1289,11 @@ function createModalElements() {
   const defaultPinConfig = backdropConfig ? svgPin : svgUnpin;
 
   // label
-  const popupLabel = document.createElement("div");
-  popupLabel.className = "modal fade";
-  popupLabel.id = "label_modal";
-  popupLabel.tabIndex = -1;
-  popupLabel.innerHTML = `
+  const labelModal = document.createElement("div");
+  labelModal.className = "modal fade";
+  labelModal.id = "label_modal";
+  labelModal.tabIndex = -1;
+  labelModal.innerHTML = `
     <div class="modal-dialog modal-lg ${bgColor} ${textColor}" style="pointer-events: initial">
       <div class="modal-header">
         <h5 class="modal-title">自动添加标签 / Label Bookmarks</h5>
@@ -1327,13 +1437,13 @@ function createModalElements() {
     </div>
   `;
   // backdrop pin
-  popupLabel.setAttribute(
+  labelModal.setAttribute(
     "data-bs-backdrop",
     backdropConfig ? "static" : "true"
   );
-  const labelPinButton = popupLabel.querySelector("#label_pin");
+  const labelPinButton = labelModal.querySelector("#label_pin");
   labelPinButton.addEventListener("click", () => {
-    const ins = bootstrap_.Modal.getOrCreateInstance(popupLabel);
+    const ins = bootstrap_.Modal.getOrCreateInstance(labelModal);
     const backdrop = ins["_config"]["backdrop"] === "static";
     if (backdrop) {
       ins["_config"]["backdrop"] = true;
@@ -1347,11 +1457,11 @@ function createModalElements() {
   });
 
   // search
-  const popupSearch = document.createElement("div");
-  popupSearch.className = "modal fade";
-  popupSearch.id = "search_modal";
-  popupSearch.tabIndex = -1;
-  popupSearch.innerHTML = `
+  const searchModal = document.createElement("div");
+  searchModal.className = "modal fade";
+  searchModal.id = "search_modal";
+  searchModal.tabIndex = -1;
+  searchModal.innerHTML = `
     <div class="modal-dialog modal-xl d-flex flex-column ${bgColor} ${textColor}" style="pointer-events: initial">
       <div class="gallery overflow-auto no-scroll flex-grow-1 d-none"></div>
       <div class="modal-header">
@@ -1431,13 +1541,13 @@ function createModalElements() {
     </div>
   `;
   // backdrop pin
-  popupSearch.setAttribute(
+  searchModal.setAttribute(
     "data-bs-backdrop",
     backdropConfig ? "static" : "true"
   );
-  const searchPinButton = popupSearch.querySelector("#search_pin");
+  const searchPinButton = searchModal.querySelector("#search_pin");
   searchPinButton.addEventListener("click", () => {
-    const ins = bootstrap_.Modal.getOrCreateInstance(popupSearch);
+    const ins = bootstrap_.Modal.getOrCreateInstance(searchModal);
     const backdrop = ins["_config"]["backdrop"] === "static";
     if (backdrop) {
       ins["_config"]["backdrop"] = true;
@@ -1449,29 +1559,6 @@ function createModalElements() {
       searchPinButton.innerHTML = svgPin;
     }
   });
-
-  const clearBookmarkTagsModal = document.createElement("div");
-  clearBookmarkTagsModal.className = "modal fade";
-  clearBookmarkTagsModal.id = "clear_tags_modal";
-  clearBookmarkTagsModal.setAttribute("data-bs-backdrop", "static");
-  clearBookmarkTagsModal.tabIndex = -1;
-  clearBookmarkTagsModal.innerHTML = `
-    <div class="modal-dialog modal-dialog-centered" style="pointer-events: initial">
-      <div class="modal-body py-4 px-5 ${bgColor} ${textColor}">
-        <div class="fs-5 mb-4 text-center">
-          <div class="mt-4 mb-3">正在处理 / Working on</div>
-          <div id="clear_tags_prompt"></div>
-        </div>
-        <div class="progress my-4" id="clear_tags_progress" style="min-height: 1rem">
-          <div style="width: 0" class="progress-bar progress-bar-striped"
-           id="clear_tags_progress_bar" role="progressbar"></div>
-        </div>
-        <div class="my-4 text-center">
-          <button class="btn btn-danger" id="stop_remove_tag_button">停止 / Stop</button>
-        </div>
-      </div>
-    </div>
-  `;
 
   const generatorModal = document.createElement("div");
   generatorModal.className = "modal fade";
@@ -1612,15 +1699,7 @@ function createModalElements() {
         .slice(index * batchSize, (index + 1) * batchSize)
         .map((w) => w["bookmarkData"]["id"]);
       // console.log(addTag, ids);
-      if (ids.length) {
-        const num = Math.ceil(ids.length / 96);
-        for (let i of [...Array(num).keys()]) {
-          await updateBookmarkTags(
-            ids.filter((_, j) => j >= i * 96 && j < (i + 1) * 96),
-            [addTag]
-          );
-        }
-      }
+      await updateBookmarkTags(ids, [addTag]);
     }
     window.runFlag = false;
     prompt.classList.add("d-none");
@@ -1653,11 +1732,153 @@ function createModalElements() {
         .forEach((w) => displayWork(w, resultsDiv, textColor));
     });
 
+  const featureModal = document.createElement("div");
+  featureModal.className = "modal fade";
+  featureModal.id = "feature_modal";
+  featureModal.tabIndex = -1;
+  featureModal.innerHTML = `
+    <div class="modal-dialog modal-lg ${bgColor} ${textColor}" style="pointer-events: initial">
+      <div class="modal-header">
+        <h5 class="modal-title">其他功能 / Other Functions</h5>
+        <button class="btn btn-close btn-close-empty ms-auto" data-bs-dismiss="modal">${svgClose}</button>
+      </div>
+      <div class="modal-body p-4">
+        <label class="form-label mb-4" for="feature_select">
+          本页面用于放置一些较为零散独立的功能。
+          <br />
+          This page contains some scattered and independent functions.
+        </label>
+        <div class="mb-4">
+          <div class="row mb-3">
+            <div class="col-6">
+              <label for="feature_form_publication" class="form-label fw-light">作品公开类型 / Publication Type</label>
+              <select class="form-select ${bgColor}" id="feature_form_publication">
+                  <option value="show">公开收藏 / Public</option>
+                  <option value="hide">私密收藏 / Private</option>
+               </select>
+            </div>
+            <div class="col-6">
+              <label for="feature_select_tag" class="form-label fw-light">作品标签 / Tag</label>
+              <select class="col-6 form-select select-custom-tags flex-grow-1 ${bgColor}" id="feature_select_tag">
+                <option value="">所有收藏 / All Works</option>
+              </select>
+            </div>
+          </div>
+          <div class="" id="feature_buttons">
+            <div class="mb-2">
+              <button class="btn btn-outline-danger me-3">删除该标签 / Delete This Tag</button>
+              <button class="btn btn-outline-danger me-auto">清除作品标签 / Clear Work Tags</button>
+            </div>
+            <div>
+              <button class="btn btn-outline-secondary me-3">更改作品公开类型 / Toggle Publication Type</button>
+            </div>
+          </div>
+        </div>
+        <div class="fw-bold text-center mt-4 d-none" id="feature_prompt"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary me-auto" data-bs-dismiss="modal">关闭 / Close</button>
+        <button type="button" class="btn btn-outline-danger" onclick="window.runFlag = false">停止 / Stop</button>
+      </div>
+    </div>
+  `;
+  const featurePrompt = featureModal.querySelector("#feature_prompt");
+  const featurePublicationType = featureModal.querySelector(
+    "#feature_form_publication"
+  );
+  const featureTag = featureModal.querySelector("#feature_select_tag");
+  const featureButtons = featureModal
+    .querySelector("#feature_buttons")
+    .querySelectorAll("button");
+  featureButtons[0].addEventListener("click", async () => {
+    const publicationType = featurePublicationType.value;
+    const tag = featureTag.value;
+    await deleteTag(tag, publicationType);
+  });
+  async function featureFetchWorks() {
+    const tag = featureTag.value;
+    const publicationType = featurePublicationType.value;
+    window.runFlag = true;
+    featurePrompt.innerText =
+      "正在获取收藏夹信息 / Fetching bookmark information";
+    featurePrompt.classList.remove("d-none");
+    const totalWorks = await fetchAllBookmarksByTag(tag, publicationType);
+    featurePrompt.classList.add("d-none");
+    console.log(totalWorks);
+    return totalWorks;
+  }
+  featureButtons[1].addEventListener("click", () =>
+    featureFetchWorks().then(clearBookmarkTags)
+  );
+  featureButtons[2].addEventListener("click", () =>
+    featureFetchWorks().then(async (works) => {
+      if (!works?.length) {
+        return alert(
+          `没有获取到收藏夹内容，操作中断，请检查选项下是否有作品\nFetching bookmark information failed. Abort operation. Please check the existence of works with the configuration`
+        );
+      }
+      const tag = featureTag.value;
+      const publicationType = featurePublicationType.value;
+      const restrict = publicationType === "show" ? "private" : "public";
+      if (
+        !window.confirm(`标签【${tag || "所有作品"}】下所有【${
+          publicationType === "show" ? "公开" : "非公开"
+        }】作品（共${works.length}项）将会被移动至【${
+          publicationType === "show" ? "非公开" : "公开"
+        }】类型，是否确认操作？
+All works of tag ${tag || "All Works"} and type ${
+          publicationType === "show" ? "PUBLIC" : "PRIVATE"
+        } (${
+          works.length
+        } in total) will be set as ${restrict.toUpperCase()}. Is this Okay?`)
+      )
+        return;
+      const instance = bootstrap_.Modal.getOrCreateInstance(progressModal);
+      instance.show();
+      await updateBookmarkRestrict(
+        works.map((w) => w["bookmarkData"]["id"]),
+        restrict,
+        progressBar
+      );
+      setTimeout(() => {
+        instance.hide();
+        if (window.runFlag && !DEBUG) window.location.reload();
+      }, 1000);
+    })
+  );
+
+  const progressModal = document.createElement("div");
+  progressModal.className = "modal fade";
+  progressModal.id = "progress_modal";
+  progressModal.setAttribute("data-bs-backdrop", "static");
+  progressModal.tabIndex = -1;
+  progressModal.innerHTML = `
+    <div class="modal-dialog modal-dialog-centered" style="pointer-events: initial">
+      <div class="modal-body py-4 px-5 ${bgColor} ${textColor}">
+        <div class="fs-5 mb-4 text-center">
+          <div class="mt-4 mb-3">正在处理 / Working on</div>
+          <div id="progress_modal_prompt"></div>
+        </div>
+        <div class="progress my-4" id="progress_modal_progress" style="min-height: 1rem">
+          <div style="width: 0" class="progress-bar progress-bar-striped"
+           id="progress_modal_progress_bar" role="progressbar"></div>
+        </div>
+        <div class="my-4 text-center">
+          <button class="btn btn-danger" id="stop_remove_tag_button">停止 / Stop</button>
+        </div>
+      </div>
+    </div>
+  `;
+  const progressBar = progressModal.querySelector(
+    "#progress_modal_progress_bar"
+  );
+
   const body = document.querySelector("body");
-  body.appendChild(popupLabel);
-  body.appendChild(popupSearch);
-  body.appendChild(clearBookmarkTagsModal);
+  body.appendChild(labelModal);
+  body.appendChild(searchModal);
   body.appendChild(generatorModal);
+  body.appendChild(featureModal);
+  body.appendChild(progressModal);
 }
 
 async function fetchUserTags() {
@@ -1780,14 +2001,16 @@ async function injectElements() {
   buttonContainer.className = "flex-grow-1 justify-content-end d-flex";
   buttonContainer.id = "label_bookmarks_buttons";
   const gClass = generator ? "" : "d-none";
+  const fClass = feature ? "" : "d-none";
   buttonContainer.innerHTML = `
+        <button class="label-button ${textColor} ${fClass}" data-bs-toggle="modal" data-bs-target="#feature_modal" id="feature_modal_button"/>
         <button class="label-button ${textColor} ${gClass}" data-bs-toggle="modal" data-bs-target="#generator_modal" id="generator_modal_button"/>
         <button class="label-button ${textColor}" data-bs-toggle="modal" data-bs-target="#search_modal" id="search_modal_button"/>
         <button class="label-button ${textColor}" data-bs-toggle="modal" data-bs-target="#label_modal" id="label_modal_button"/>
       `;
 
   const clearTagsThemeClass = theme ? "jbzOgz" : "dydUg";
-  const clearTagsText = lang.includes("zh") ? "清除标签" : "Remove Tags";
+  const clearTagsText = lang.includes("zh") ? "清除标签" : "Clear Tags";
   const clearTagsButton = document.createElement("div");
   clearTagsButton.id = "clear_tags_button";
   clearTagsButton.className = "sc-1ij5ui8-0 QihHO sc-13ywrd6-7 tPCje";
@@ -1798,7 +2021,7 @@ async function injectElements() {
               ${clearTagsText}
             </div>
           </div>`;
-  clearTagsButton.addEventListener("click", clearBookmarkTags);
+  clearTagsButton.addEventListener("click", handleClearBookmarkTags);
 
   const removeTagButton = document.createElement("div");
   removeTagButton.id = "remove_tag_button";
@@ -1816,7 +2039,7 @@ async function injectElements() {
     </div>
     <div class="fw-bold ${textColor}" id="remove_tag_prompt"></div>
   `;
-  removeTagButton.addEventListener("click", removeCurrentTag);
+  removeTagButton.addEventListener("click", handleDeleteTag);
 
   async function injection(_, injectionObserver) {
     if (_) console.log(_);
@@ -1826,13 +2049,12 @@ async function injectElements() {
     console.log("[Label Bookmarks] Try Injecting");
 
     const workInfo = await updateWorkInfo();
-    if (!workInfo.works) {
+    if (!workInfo["works"]) {
       if (injectionObserver)
         injectionObserver.observe(pageBody, { childList: true });
       return console.log("[Label Bookmarks] Abort Injection");
     }
     if (DEBUG) {
-      console.log("work info", workInfo);
       console.log("user tags", userTags);
       console.log("dict:", synonymDict);
     }
@@ -2042,14 +2264,17 @@ function setElementProperties() {
   const labelButton = document.querySelector("#label_modal_button");
   const searchButton = document.querySelector("#search_modal_button");
   const generatorButton = document.querySelector("#generator_modal_button");
+  const featureButton = document.querySelector("#feature_modal_button");
   if (lang.includes("zh")) {
     labelButton.innerText = "添加标签";
     searchButton.innerText = "搜索图片";
     generatorButton.innerText = "随机图片";
+    featureButton.innerText = "其他功能";
   } else {
     labelButton.innerText = "Label";
     searchButton.innerText = "Search";
     generatorButton.innerText = "Shuffle";
+    featureButton.innerText = "Function";
   }
   addStyle(
     `.label-button {
@@ -2439,15 +2664,32 @@ function setAdvancedSearch() {
 function registerMenu() {
   generator = getValue("showGenerator", "false") === "true";
   if (generator)
-    GM_registerMenuCommand_("隐藏随机图片 / Hide Shuffle Generator", () => {
+    GM_registerMenuCommand_("关闭随机图片 / Disable Shuffled Images", () => {
       setValue("showGenerator", "false");
       window.location.reload();
     });
   else
-    GM_registerMenuCommand_("显示随机图片 / Show Shuffle Generator", () => {
+    GM_registerMenuCommand_("启用随机图片 / Enable Shuffled Images", () => {
       setValue("showGenerator", "true");
       window.location.reload();
     });
+  feature = getValue("showFeature", "false") === "true";
+  if (feature)
+    GM_registerMenuCommand_(
+      "关闭其他功能 / Disable Additional Functions",
+      () => {
+        setValue("showFeature", "false");
+        window.location.reload();
+      }
+    );
+  else
+    GM_registerMenuCommand_(
+      "显示其他功能 / Enable Additional Functions",
+      () => {
+        setValue("showFeature", "true");
+        window.location.reload();
+      }
+    );
 }
 
 (function () {
