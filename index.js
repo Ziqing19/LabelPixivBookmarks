@@ -1156,6 +1156,7 @@ async function handleGenerate(evt) {
     generatorBatchNum = -1;
     generatorBookmarks.forEach((w) => {
       if (
+        restriction === "all" ||
         (restriction === "sfw" && !w["xRestrict"]) ||
         (restriction === "nsfw" && w["xRestrict"])
       )

@@ -8,6 +8,14 @@
 
 - The script is developed on Tampermonkey, whereas Greasemonkey has quite different API calls.
 
+## Latest
+
+- Shuffled Images (manually enable it in the extension menu): load images by tag and batch size; save them to new tags by batch
+
+- Gallery Mode (available in Search Images and Shuffled Images page): click on the thumbnail to enter, and use arrow keys to manipulate
+
+- Additional Functions (manually enable it in the extension menu): manage bookmarks of specified tag in bulk (delete tag, set publication type, etc.)
+
 ## Intro
 
 - The script will compare **your existing bookmark tags** and tags of the image, then find the intersection and save
@@ -128,6 +136,27 @@
 - Click ***Search*** Button to open the search page, and search with the keyword [asuka], which is the target tag we have registered before
 - The script will return all images with tag [asuka] or [asuka]'s alias.
   
+## Manually enable some functions
+
+- In order not to crowd to UI, some non-core functions need to be enabled manually by clicking corresponding button in the extension menu
+
+![enableFunctions](./assets/13.png)
+
+## Display Shuffled Images
+
+- This function is used to view random images of specified tag, or split a big tag into smaller ones
+- Set the tag to load and other configs (loading all works takes quite long time) and click on the ***Load*** button on the bottom right to start
+- Images of the tag will be split into N batches by the batch size. Click on the Load button will switch to the next batch
+- Click on the thumbnail to enter gallery mode. Use four arrow keys to manipulate. Click on the X on the top left to exit
+- Click on the ***Save to Tag*** button to save N batches into N sub-tags which is used for split a big tag into smaller ones and facilitates easier access to early bookmarks
+
+## Additional Functions
+
+- Some scattered and independent functions are resided in this page
+- Click on ***Delete This Tag*** button to the tag from all related works (select tag1, tag1,tag2 => tag2)
+- Click on ***Clear Work Tags*** button to set all related works to uncategorized (select tag1, tag1,tag2 => uncategorized)
+- Click on ***Toggle Publication Type*** button to toggle the publication type of related works between public and private
+
 ## FAQ
 
 - The ***Label*** button cannot be found on the website
@@ -160,6 +189,14 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
 ## 请使用Tampermonkey插件
 
 - 脚本基于Tampermonkey开发，Greasemonkey的API与本脚本不兼容，如果希望在Greasemonkey上使用请自行修改使用的API
+
+## 最近更新
+
+- 随机图片功能（需要在插件菜单中点击开启）：可以加载指定标签下所有图片并按批次随机展示并按分组存储至新标签
+
+- 画廊模式（在随机图片和搜索图片页面下生效）：点击图片缩略图可以全屏浏览图片，使用方向键操控
+
+- 其他功能（需要在插件菜单中点击开启）：可以按照标签批量管理图片，提供删除、设置公开类型等功能
 
 ## 工作原理
 
@@ -282,6 +319,27 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
   - 精确匹配：作品的某个标签与搜索内容相同
 
 ![step7](./assets/09.png)
+
+## 手动启用部分功能
+
+- 为了不让UI过于臃肿，部分非核心功能设定为在菜单中手动开启，点击对应按钮即可开启
+
+![enableFunctions](./assets/13.png)
+
+## 展示随机图片
+
+- 本功能可用于随机浏览特定标签下的图片，或用于切分较大的标签至数个子标签
+- 设定需要加载的标签（加载全部作品会需要较长时间）等设置后点击右下角的【加载】按钮即可
+- 该标签下的所有图片将按批量大小被切分为N批进行展示，点击【加载】将显示下一批
+- 点击缩略图进入画廊模式，使用上下左右方向键进行浏览，点击左上角X退出画廊模式
+- 点击【保存至标签】可以将切分好的N批保存至N个子标签，这一功能可用于切分较大的收藏标签以便于浏览较早的收藏
+
+## 其他功能
+
+- 部分零散且独立的功能将会放置在这个页面
+- 点击【删除该标签】将从所有关联作品中移除该标签（选择Tag1，Tag1,Tag2 => Tag2）
+- 点击【清除作品标签】将从所有关联作品中移除所有标签（选择Tag1，Tag1,Tag2 => 未分类）
+- 点击【更改作品公开类型】将切换所有关联作品的公开类型
 
 ## 常见问题
 
