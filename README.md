@@ -108,6 +108,7 @@
 - Whether the first tag will be added if there is not any match
   - Design for a cold start
   - It works when the intersection of your existing bookmark tags and tags of the work is empty, then the first tag of the image will be added
+  - When ignore tags are provided, the script will use the first tag that is not ignored
 
 - Publication Type for Labeling
   - Pixiv stores public and private bookmarks in different places, and they have independent tags
@@ -288,6 +289,7 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
 - 无匹配时是否自动添加首个标签
   - 用于没有任何***用户收藏标签***的账户进行冷启动
   - 作用为当该作品的标签与已收藏的标签***没有交集***时，默认添加该作品的第一个标签
+  - 当设置了忽略标签范围时，会使用首个未被忽略的标签
 
 - 作品公开类型
   - pixiv的公开和非公开作品使用两套不同的收藏体系，标签列表也是独立的

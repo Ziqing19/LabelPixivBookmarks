@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      5.0
+// @version      5.1
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -583,6 +583,7 @@ async function handleLabel(evt) {
           .map((workTag) => {
             for (let aliasName of Object.keys(synonymDict)) {
               if (
+                aliasName.toUpperCase() === workTag.toUpperCase() ||
                 synonymDict[aliasName]
                   .toUpperCase()
                   .includes(workTag.toUpperCase()) ||
@@ -604,28 +605,31 @@ async function handleLabel(evt) {
       const bookmarkId = work["bookmarkData"]["id"];
       const prevTags = bookmarks["bookmarkTags"][bookmarkId] || [];
 
-      let removeTags = [];
-      const addTags = intersection.filter((tag) => !prevTags.includes(tag));
-
       if (!intersection.length && !prevTags.length) {
         if (addFirst === "true") {
-          intersection.push(workTags[0]);
-          userTags.push(workTags[0]);
+          const first = workTags.find((tag) => !exclusion.includes(tag));
+          if (first) {
+            intersection.push(first);
+            userTags.push(first);
+          }
         }
       }
+
+      const addTags = intersection.filter((tag) => !prevTags.includes(tag));
+
       // for uncategorized
       if (!intersection.length) {
         offset++;
       }
-      if (addTags.length || removeTags.length) {
+      if (addTags.length) {
         if (!DEBUG) console.log(index, work.title, work.id, url);
         console.log("\tprevTags:", prevTags);
         console.log("\tintersection:", intersection);
-        console.log("\taddTags:", addTags, "removeTags:", removeTags);
-      }
+        console.log("\taddTags:", addTags);
+      } else continue;
 
       promptBottom.innerText = `处理中，请勿关闭窗口 / Processing. Please do not close the window.\n${work.alt}`;
-      await updateBookmarkTags([bookmarkId], addTags, removeTags);
+      await updateBookmarkTags([bookmarkId], addTags);
 
       if (!window.runFlag) {
         promptBottom.innerText =
@@ -1318,9 +1322,9 @@ function createModalElements() {
           </button>
           <div class="collapse show px-3" id="synonym_content">
             <div class="mb-4">
-              <button type="button" class="mb-3 btn p-0 fw-light" data-bs-toggle="collapse"
+              <button type="button" class="btn p-0 fw-light" data-bs-toggle="collapse"
                 data-bs-target="#load_synonym_dict">&#9658; 加载词典 / Load Dict</button>
-              <div class="mb-3 collapse" id="load_synonym_dict">
+              <div class="pt-3 collapse" id="load_synonym_dict">
                 <input class="form-control border mb-3" type="file" accept="application/json" id="synonym_dict_input"/>
                 <div class="mb-3 d-flex">
                   <div class="fw-light me-auto">
@@ -1338,9 +1342,9 @@ function createModalElements() {
               </div>
             </div>
             <div class="mb-4">
-              <button type="button" class="mb-3 btn p-0 fw-light" data-bs-toggle="collapse"
+              <button type="button" class="btn p-0 fw-light" data-bs-toggle="collapse"
                 data-bs-target="#edit_synonym_dict">&#9658; 编辑词典 / Edit Dict</button>
-              <div class="mb-3 collapse" id="edit_synonym_dict">
+              <div class="pt-3 collapse" id="edit_synonym_dict">
                 <label class="form-label fw-light" for="target_tag">目标标签（用户标签） / Target Tag (User Tag)</label>
                 <input class="form-control mb-3" type="text" id="target_tag" placeholder="eg: 新世紀エヴァンゲリオン" />
                 <label class="form-label fw-light" for="tag_alias">同义词（作品标签，空格/回车分割，不区分大小写） / Alias (From Artwork, Space/Line Delimited, Case-Insensitive)</label>
@@ -1357,9 +1361,9 @@ function createModalElements() {
               </div>
             </div>
             <div class="mb-4">
-              <button type="button" class="mb-3 btn p-0 fw-light" data-bs-toggle="collapse"
+              <button type="button" class="btn p-0 fw-light" data-bs-toggle="collapse"
                 data-bs-target="#preview_synonym_dict">&#9658; 预览词典 / Preview Dict</button>
-              <div class="mb-3 collapse show" id="preview_synonym_dict">
+              <div class="pt-3 collapse show" id="preview_synonym_dict">
                 <div class="mb-2 position-relative">
                   <input type="text" class="form-control mb-2" id="synonym_filter" placeholder="筛选 / Filter" />
                   <button type="button" class="position-absolute btn btn-close end-0 top-50 translate-middle" id="clear_synonym_filter"/>
@@ -1383,10 +1387,18 @@ function createModalElements() {
           <button type="button" class="btn p-0 mb-3" data-bs-toggle="collapse" data-bs-target="#advanced_label">&#9658; 高级设置 / Advanced</button>
           <div class="px-3 mb-4 collapse" id="advanced_label">
             <div class="mb-3">
-              <label class="form-label fw-light" for="label_add_first">
-                无匹配时是否自动添加首个标签
+              <label class="form-label fw-light" for="label_exclusion">
+                忽略以下标签（空格/回车分割，区分大小写）
                 <br />
-                Whether the first tag will be added if there is not any match
+                Ignore following tags (delimited by line/space, case-sensitive)
+              </label>
+              <textarea id="label_exclusion" class="form-control" rows="2" id="tag_alias" style="min-height: initial" placeholder="オリジナル"></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-light" for="label_add_first">
+                无匹配时是否自动添加首个未被忽略的标签
+                <br />
+                Whether the first tag (not ignored) will be added if there is not any match
               </label>
               <select id="label_add_first" class="form-select ${bgColor}">
                 <option value="false">否 / No</option>
@@ -1403,14 +1415,6 @@ function createModalElements() {
                 <option value="true">标记 / Yes</option>
                 <option value="false">忽略 / No</option>
               </select>
-            </div>
-            <div class="mb-3">
-              <label class="form-label fw-light" for="label_exclusion">
-                忽略以下标签（空格/回车分割，区分大小写）
-                <br />
-                Ignore following tags (delimited by line/space, case-sensitive)
-              </label>
-              <textarea id="label_exclusion" class="form-control" rows="2" id="tag_alias" style="min-height: initial" placeholder="オリジナル"></textarea>
             </div>
           </div>
         </div>
@@ -1515,6 +1519,7 @@ function createModalElements() {
                 <label class="form-label fw-light">自定义标签用于缩小搜索范围 / Custom Tag to Narrow the Search</label>
                 <select class="form-select select-custom-tags ${bgColor}" id="search_select_tag">
                   <option value="">所有收藏 / All Works</option>
+                  <option value="未分類">未分类作品 / Uncategorized Works</option>
                 </select>
               </div>
               <div class="mb-2">
@@ -1600,6 +1605,7 @@ function createModalElements() {
           </label>
           <form class="mb-3" id="generator_form">
             <select class="mb-3 form-select select-custom-tags flex-grow-1 ${bgColor}" id="generator_select_tag">
+              <option value="未分類">未分类作品 / Uncategorized Works</option>
               <option value="">所有收藏 / All Works</option>
             </select>
             <div class="row">
