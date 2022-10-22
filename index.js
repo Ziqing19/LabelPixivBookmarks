@@ -24,6 +24,7 @@ let uid,
   token,
   lang,
   userTags,
+  userTagDict,
   synonymDict,
   pageInfo,
   theme,
@@ -479,7 +480,7 @@ async function handleDeleteTag(evt) {
   await deleteTag(tag, restrict ? "hide" : "show");
 }
 
-const DEBUG = false;
+const DEBUG = true;
 async function handleLabel(evt) {
   evt.preventDefault();
 
@@ -769,7 +770,7 @@ async function handleSearch(evt) {
       searchOffset++;
 
       if (work.title === "-----") continue;
-      const userTags =
+      const bookmarkTags =
         bookmarks["bookmarkTags"][work["bookmarkData"]["id"]] || []; // empty if uncategorized
       const workTags = work["tags"];
 
@@ -814,7 +815,8 @@ async function handleSearch(evt) {
                 work["userName"].toUpperCase().includes(kw.toUpperCase())) ||
               (config[2] &&
                 workTags.toUpperCase().includes(kw.toUpperCase())) ||
-              (config[3] && userTags.toUpperCase().includes(kw.toUpperCase()))
+              (config[3] &&
+                bookmarkTags.toUpperCase().includes(kw.toUpperCase()))
           )
         )
           return true;
@@ -826,14 +828,14 @@ async function handleSearch(evt) {
                 .toUpperCase()
                 .some((tag) => tag.includes(kw.toUpperCase()))) ||
             (config[3] &&
-              userTags
+              bookmarkTags
                 .toUpperCase()
                 .some((tag) => tag.includes(kw.toUpperCase())))
         );
       };
 
       if (
-        (!tagsLengthMatch || includeArray.length === userTags.length) &&
+        (!tagsLengthMatch || includeArray.length === bookmarkTags.length) &&
         includeArray.every(ifInclude) &&
         !excludeArray.some(ifInclude)
       ) {
@@ -1900,11 +1902,12 @@ async function fetchUserTags() {
         "\n" +
         decodeURI(tagsObj.message)
     );
+  userTagDict = tagsObj.body;
   const userTagsSet = new Set();
-  for (let obj of tagsObj.body.public) {
+  for (let obj of userTagDict.public) {
     userTagsSet.add(decodeURI(obj.tag));
   }
-  for (let obj of tagsObj.body["private"]) {
+  for (let obj of userTagDict["private"]) {
     userTagsSet.add(decodeURI(obj.tag));
   }
   userTagsSet.delete("未分類");
@@ -2062,7 +2065,7 @@ async function injectElements() {
       return console.log("[Label Bookmarks] Abort Injection");
     }
     if (DEBUG) {
-      console.log("user tags", userTags);
+      console.log("user tags", userTags, userTagDict);
       console.log("dict:", synonymDict);
     }
 
@@ -2305,10 +2308,20 @@ function setElementProperties() {
   // append user tags options
   const customSelects = [...document.querySelectorAll(".select-custom-tags")];
   customSelects.forEach((el) => {
+    const uncat = el.querySelector("option[value='未分類']");
+    if (uncat) {
+      const t = "未分類";
+      const pb = userTagDict.public.find((e) => e.tag === t)?.["cnt"] || 0;
+      const pr = userTagDict["private"].find((e) => e.tag === t)?.["cnt"] || 0;
+      uncat.innerText = `未分类作品 / Uncategorized Works (${pb}, ${pr})`;
+    }
     userTags.forEach((tag) => {
       const option = document.createElement("option");
       option.value = tag;
-      option.innerText = tag;
+      const pb = userTagDict.public.find((e) => e.tag === tag)?.["cnt"] || 0;
+      const pr =
+        userTagDict["private"].find((e) => e.tag === tag)?.["cnt"] || 0;
+      option.innerText = tag + ` (${pb}, ${pr})`;
       el.appendChild(option);
     });
   });
