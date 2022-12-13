@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      5.1
+// @version      5.2
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -480,7 +480,7 @@ async function handleDeleteTag(evt) {
   await deleteTag(tag, restrict ? "hide" : "show");
 }
 
-const DEBUG = true;
+const DEBUG = false;
 async function handleLabel(evt) {
   evt.preventDefault();
 
@@ -490,6 +490,7 @@ async function handleLabel(evt) {
     ? "hide"
     : "show";
   const labelR18 = document.querySelector("#label_r18").value;
+  const labelSafe = document.querySelector("#label_safe").value;
   const exclusion = document
     .querySelector("#label_exclusion")
     .value.split(/[\s\n]/)
@@ -499,7 +500,9 @@ async function handleLabel(evt) {
   console.log(
     `addFirst: ${addFirst === "true"}; tagToQuery: ${tagToQuery}; labelR18: ${
       labelR18 === "true"
-    }; publicationType: ${publicationType}; exclusion: ${exclusion.join(",")}`
+    }; labelSafe: ${labelSafe}; publicationType: ${publicationType}; exclusion: ${exclusion.join(
+      ","
+    )}`
   );
 
   window.runFlag = true;
@@ -512,7 +515,7 @@ async function handleLabel(evt) {
   // fetch bookmarks
   let total, // total bookmarks of specific tag
     index = 0, // counter of do-while loop
-    offset = 0; // as uncategorized ones will decrease, offset means num of images "successfully" updated
+    offset = 0; // as uncategorized ones will decrease, offset means num of images updated "successfully"
   // update progress bar
   const progressBar = document.querySelector("#progress_bar");
   progressBar.style.width = "0";
@@ -598,6 +601,7 @@ async function handleLabel(evt) {
           .filter((i) => i)
       );
       if (work["xRestrict"] && labelR18 === "true") intersection.push("R-18");
+      if (!work["xRestrict"] && labelSafe === "true") intersection.push("SFW");
       // remove duplicate and exclusion
       intersection = Array.from(new Set(intersection)).filter(
         (t) => !exclusion.includes(t)
@@ -1418,6 +1422,17 @@ function createModalElements() {
                 <option value="false">忽略 / No</option>
               </select>
             </div>
+            <div class="mb-3">
+              <label class="form-label fw-light" for="label_safe">
+                是否为全年龄作品标记#SFW标签
+                <br />
+                Whether SFW works will be labeled as #SFW
+              </label>
+              <select id="label_safe" class="form-select ${bgColor}">
+                <option value="true">标记 / Yes</option>
+                <option value="false">忽略 / No</option>
+              </select>
+            </div>
           </div>
         </div>
         <div class="my-5">
@@ -1986,7 +2001,13 @@ async function initializeVariables() {
   }).observe(themeDiv, { attributes: true });
 
   synonymDict = getValue("synonymDict", {});
-  if (Object.keys(synonymDict).length) setValue("synonymDict", synonymDict);
+  if (Object.keys(synonymDict).length) {
+    // remove empty values on load, which could be caused by unexpected interruption
+    for (let key of Object.keys(synonymDict)) {
+      if (!synonymDict[key]) delete synonymDict[key];
+    }
+    setValue("synonymDict", synonymDict);
+  }
 }
 
 const maxRetries = 100;
@@ -2350,6 +2371,10 @@ function setElementProperties() {
   const labelR18 = document.querySelector("#label_r18");
   labelR18.value = getValue("labelR18", "true");
   labelR18.onchange = () => setValue("labelR18", labelR18.value);
+
+  const labelSafe = document.querySelector("#label_safe");
+  labelSafe.value = getValue("labelSafe", "false");
+  labelSafe.onchange = () => setValue("labelSafe", labelSafe.value);
 
   const exclusion = document.querySelector("#label_exclusion");
   exclusion.value = getValue("exclusion", "");
