@@ -241,7 +241,12 @@ async function fetchAllBookmarksByTag(
   return totalWorks;
 }
 
-async function updateBookmarkTags(bookmarkIds, addTags, removeTags) {
+async function updateBookmarkTags(
+  bookmarkIds,
+  addTags,
+  removeTags,
+  progressBar
+) {
   if (!bookmarkIds?.length)
     throw new TypeError("BookmarkIds is undefined or empty array");
   if (!Array.isArray(addTags) && !Array.isArray(removeTags))
@@ -279,6 +284,16 @@ async function updateBookmarkTags(bookmarkIds, addTags, removeTags) {
       (_, j) => j >= i * bookmarkBatchSize && j < (i + 1) * bookmarkBatchSize
     );
     await run(ids);
+    if (progressBar) {
+      const offset = i * bookmarkBatchSize;
+      progressBar.innerText = offset + "/" + bookmarkIds.length;
+      const ratio = (offset / bookmarkIds.length).toFixed(2);
+      progressBar.style.width = ratio + "%";
+    }
+  }
+  if (progressBar) {
+    progressBar.innerText = bookmarkIds.length + "/" + bookmarkIds.length;
+    progressBar.style.width = "100%";
   }
 }
 
@@ -1816,11 +1831,15 @@ function createModalElements() {
           </div>
           <div class="" id="feature_buttons">
             <div class="mb-2">
+              <button class="btn btn-outline-secondary me-3">更改作品公开类型 / Toggle Publication Type</button>
+            </div>
+            <div class="mb-2">
               <button class="btn btn-outline-danger me-3">删除该标签 / Delete This Tag</button>
               <button class="btn btn-outline-danger me-auto">清除作品标签 / Clear Work Tags</button>
             </div>
-            <div>
-              <button class="btn btn-outline-secondary me-3">更改作品公开类型 / Toggle Publication Type</button>
+            <div class="d-flex">
+              <input class="form-control" type="text" id="feature_new_tag_name" placeholder="新标签名 / New Tag Name" />
+              <button class="btn btn-outline-secondary ms-3" style="white-space: nowrap">更改标签名称 / Rename Tag</button>
             </div>
           </div>
         </div>
@@ -1840,11 +1859,6 @@ function createModalElements() {
   const featureButtons = featureModal
     .querySelector("#feature_buttons")
     .querySelectorAll("button");
-  featureButtons[0].addEventListener("click", async () => {
-    const publicationType = featurePublicationType.value;
-    const tag = featureTag.value;
-    await deleteTag(tag, publicationType);
-  });
   async function featureFetchWorks() {
     const tag = featureTag.value;
     const publicationType = featurePublicationType.value;
@@ -1857,10 +1871,8 @@ function createModalElements() {
     console.log(totalWorks);
     return totalWorks;
   }
-  featureButtons[1].addEventListener("click", () =>
-    featureFetchWorks().then(clearBookmarkTags)
-  );
-  featureButtons[2].addEventListener("click", () =>
+  // toggle publication type
+  featureButtons[0].addEventListener("click", () =>
     featureFetchWorks().then(async (works) => {
       if (!works?.length) {
         return alert(
@@ -1896,6 +1908,64 @@ All works of tag ${tag || "All Works"} and type ${
       }, 1000);
     })
   );
+  // delete tag
+  featureButtons[1].addEventListener("click", async () => {
+    const publicationType = featurePublicationType.value;
+    const tag = featureTag.value;
+    await deleteTag(tag, publicationType);
+  });
+  // clear tag
+  featureButtons[2].addEventListener("click", () =>
+    featureFetchWorks().then(clearBookmarkTags)
+  );
+  // rename tag
+  featureButtons[3].addEventListener("click", () => {
+    const tag = featureTag.value;
+    let newName = featureModal.querySelector(
+      "input#feature_new_tag_name"
+    ).value;
+    newName = newName.split(" ")[0].replace("（", "(").replace("）", ")");
+
+    if (!tag || tag === "未分類")
+      return window.alert(`无效的标签名\nInvalid tag name`);
+    if (!newName)
+      return window.alert(`新标签名不可以为空！\nEmpty New Tag Name!`);
+    if (userTags.includes(newName))
+      return window.alert(
+        `请使用使用不同的新标签名称！\nPlease use a different new tag name!`
+      );
+    if (
+      !window.confirm(`是否将标签【${tag}】重命名为【${newName}】？\n与之关联的作品标签与同义词词典将被更新。
+Tag ${tag} will be renamed to ${newName}.\n All related works and synonym dictionary wil be updated. Is this okay?`)
+    )
+      return;
+    featureFetchWorks().then(async (works) => {
+      if (!works?.length) {
+        return alert(
+          `没有获取到收藏夹内容，操作中断，请检查选项下是否有作品\nFetching bookmark information failed. Abort operation. Please check the existence of works with the configuration`
+        );
+      }
+      if (synonymDict[tag]) {
+        const value = synonymDict[tag];
+        delete synonymDict[tag];
+        synonymDict[newName] = value;
+        const newDict = {};
+        for (let key of sortByParody(Object.keys(synonymDict))) {
+          newDict[key] = synonymDict[key];
+        }
+        synonymDict = newDict;
+        setValue("synonymDict", synonymDict);
+      }
+      const ids = works.map((work) => work["bookmarkData"]["id"]);
+      const instance = bootstrap_.Modal.getOrCreateInstance(progressModal);
+      instance.show();
+      await updateBookmarkTags(ids, [newName], [tag]);
+      setTimeout(() => {
+        instance.hide();
+        if (window.runFlag && !DEBUG) window.location.reload();
+      }, 1000);
+    });
+  });
 
   const progressModal = document.createElement("div");
   progressModal.className = "modal fade";
@@ -1904,7 +1974,7 @@ All works of tag ${tag || "All Works"} and type ${
   progressModal.tabIndex = -1;
   progressModal.innerHTML = `
     <div class="modal-dialog modal-dialog-centered" style="pointer-events: initial">
-      <div class="modal-body py-4 px-5 ${bgColor} ${textColor}">
+      <div class="modal-body py-4 px-5 border border-secondary ${bgColor} ${textColor}">
         <div class="fs-5 mb-4 text-center">
           <div class="mt-4 mb-3">正在处理 / Working on</div>
           <div id="progress_modal_prompt"></div>
