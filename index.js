@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      5.2
+// @version      5.3
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -20,6 +20,11 @@
 
 // ==/UserScript==
 
+const latest = `♢ 新增迁移标签名功能（在其他功能中）
+♢ Added functions to rename a tag and migrate work tags (in additional functions)
+♢ 新增标记AI作画至#AI标签的功能
+♢ Added options to label AI-generated works as #AI tag`;
+
 let uid,
   token,
   lang,
@@ -29,6 +34,7 @@ let uid,
   pageInfo,
   theme,
   generator,
+  // workType,
   feature;
 // noinspection TypeScriptUMDGlobal,JSUnresolvedVariable
 let unsafeWindow_ = unsafeWindow,
@@ -480,7 +486,7 @@ async function handleDeleteTag(evt) {
   await deleteTag(tag, restrict ? "hide" : "show");
 }
 
-const DEBUG = false;
+const DEBUG = true;
 async function handleLabel(evt) {
   evt.preventDefault();
 
@@ -491,6 +497,7 @@ async function handleLabel(evt) {
     : "show";
   const labelR18 = document.querySelector("#label_r18").value;
   const labelSafe = document.querySelector("#label_safe").value;
+  const labelAI = document.querySelector("#label_ai").value;
   const exclusion = document
     .querySelector("#label_exclusion")
     .value.split(/[\s\n]/)
@@ -500,7 +507,7 @@ async function handleLabel(evt) {
   console.log(
     `addFirst: ${addFirst === "true"}; tagToQuery: ${tagToQuery}; labelR18: ${
       labelR18 === "true"
-    }; labelSafe: ${labelSafe}; publicationType: ${publicationType}; exclusion: ${exclusion.join(
+    }; labelSafe: ${labelSafe}; labelAI: ${labelAI}; publicationType: ${publicationType}; exclusion: ${exclusion.join(
       ","
     )}`
   );
@@ -602,6 +609,7 @@ async function handleLabel(evt) {
       );
       if (work["xRestrict"] && labelR18 === "true") intersection.push("R-18");
       if (!work["xRestrict"] && labelSafe === "true") intersection.push("SFW");
+      if (work["aiType"] === 2 && labelAI === "true") intersection.push("AI");
       // remove duplicate and exclusion
       intersection = Array.from(new Set(intersection)).filter(
         (t) => !exclusion.includes(t)
@@ -1312,14 +1320,21 @@ function createModalElements() {
         <button class="btn btn-close btn-close-empty ms-3" data-bs-dismiss="modal">${svgClose}</button>
       </div>
       <form class="modal-body p-4" id="label_form">
-        <div class="text-center mb-4">
-          <div>如果对以下配置有疑惑，请参考
-            <a href="https://greasyfork.org/zh-CN/scripts/423823-pixiv%E6%94%B6%E8%97%8F%E5%A4%B9%E8%87%AA%E5%8A%A8%E6%A0%87%E7%AD%BE?locale_override=1" style="text-decoration: underline"
-              target="_blank" rel="noreferrer">文档</a>
-          </div>
-          <div>Please refer to the
-            <a href="https://greasyfork.org/en/scripts/423823-pixiv%E6%94%B6%E8%97%8F%E5%A4%B9%E8%87%AA%E5%8A%A8%E6%A0%87%E7%AD%BE" style="text-decoration: underline"
-              target="_blank" rel="noreferrer">document</a> if confused.
+        <div class="mb-4 mt-2">
+          <button type="button" class="mb-3 btn p-0" data-bs-toggle="collapse" data-bs-target="#latest_content">
+            &#9658; 最近更新 / Latest
+          </button>
+          <div class="collapse px-3 fw-light" id="latest_content">
+            <div class="mb-3">
+              <div>如果对以下配置有疑惑，请参考<a href="https://greasyfork.org/zh-CN/scripts/423823-pixiv%E6%94%B6%E8%97%8F%E5%A4%B9%E8%87%AA%E5%8A%A8%E6%A0%87%E7%AD%BE?locale_override=1" style="text-decoration: underline"
+                  target="_blank" rel="noreferrer">文档</a>
+              </div>
+              <div>Please refer to the
+                <a href="https://greasyfork.org/en/scripts/423823-pixiv%E6%94%B6%E8%97%8F%E5%A4%B9%E8%87%AA%E5%8A%A8%E6%A0%87%E7%AD%BE" style="text-decoration: underline"
+                  target="_blank" rel="noreferrer">document</a> if confused.
+              </div>
+            </div>
+            <div style="white-space: pre">${latest}</div>
           </div>
         </div>
         <div class="mb-4">
@@ -1374,7 +1389,7 @@ function createModalElements() {
                   <input type="text" class="form-control mb-2" id="synonym_filter" placeholder="筛选 / Filter" />
                   <button type="button" class="position-absolute btn btn-close end-0 top-50 translate-middle" id="clear_synonym_filter"/>
                 </div>
-                <div id="synonym_preview" class="border py-1 px-3" style="white-space: pre-wrap; min-height: 100px; max-height: 30vh; overflow-y: scroll"></div>
+                <div id="synonym_preview" class="border py-1 px-3 no-scroll" style="white-space: pre-wrap; min-height: 100px; max-height: 32vh; overflow-y: scroll"></div>
               </div>
             </div>
           </div>
@@ -1433,9 +1448,20 @@ function createModalElements() {
                 <option value="false">忽略 / No</option>
               </select>
             </div>
+            <div class="mb-3">
+              <label class="form-label fw-light" for="label_ai">
+                是否为AI生成作品标记#AI标签
+                <br />
+                Whether AI-generated works will be labeled as #AI
+              </label>
+              <select id="label_ai" class="form-select ${bgColor}">
+                <option value="true">标记 / Yes</option>
+                <option value="false">忽略 / No</option>
+              </select>
+            </div>
           </div>
         </div>
-        <div class="my-5">
+        <div class="mb-4">
           <label class="form-label mb-2 fw-light">执行进度 / Progress</label>
           <div class="mb-3" id="label_prompt"></div>
           <div class="progress" id="progress" style="min-height: 1rem">
@@ -1976,6 +2002,8 @@ async function initializeVariables() {
 
   userTags = await fetchUserTags();
 
+  // workType = Object.values(document.querySelector(".sc-1x9383j-0"))[0].child["memoizedProps"]["workType"];
+
   // switch between default and dark theme
   const themeDiv = document.querySelector(".charcoal-token");
   theme = themeDiv.getAttribute("data-theme") === "default";
@@ -2375,6 +2403,10 @@ function setElementProperties() {
   const labelSafe = document.querySelector("#label_safe");
   labelSafe.value = getValue("labelSafe", "false");
   labelSafe.onchange = () => setValue("labelSafe", labelSafe.value);
+
+  const labelAI = document.querySelector("#label_ai");
+  labelAI.value = getValue("labelAI", "false");
+  labelAI.onchange = () => setValue("labelAI", labelAI.value);
 
   const exclusion = document.querySelector("#label_exclusion");
   exclusion.value = getValue("exclusion", "");
