@@ -505,7 +505,7 @@ async function handleDeleteTag(evt) {
   await deleteTag(tag, restrict ? "hide" : "show");
 }
 
-const DEBUG = true;
+const DEBUG = false;
 async function handleLabel(evt) {
   evt.preventDefault();
 
@@ -1837,13 +1837,21 @@ function createModalElements() {
             <div class="mb-2">
               <button class="btn btn-outline-secondary me-3">更改作品公开类型 / Toggle Publication Type</button>
             </div>
-            <div class="mb-2">
+            <div class="mb-3">
               <button class="btn btn-outline-danger me-3">删除该标签 / Delete This Tag</button>
               <button class="btn btn-outline-danger me-auto">清除作品标签 / Clear Work Tags</button>
             </div>
-            <div class="d-flex">
-              <input class="form-control" type="text" id="feature_new_tag_name" placeholder="新标签名 / New Tag Name" />
-              <button class="btn btn-outline-secondary ms-3" style="white-space: nowrap">更改标签名称 / Rename Tag</button>
+            <div class="">
+              <input class="form-control mb-2" type="text" id="feature_new_tag_name" placeholder="新标签名 / New Tag Name" />
+              <div class="d-flex">
+                <button class="btn btn-outline-secondary me-3" style="white-space: nowrap">更改标签名称 / Rename Tag</button>
+                <div class="form-check d-inline-block align-self-center">
+                  <input class="form-check-input" type="checkbox" value="" id="feature_tag_update_dict">
+                  <label class="form-check-label" for="feature_tag_update_dict">
+                    更新词典 / Update Dict
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1961,13 +1969,14 @@ All works of tag ${tag || "All Works"} and type ${
       return window.alert(`无效的标签名\nInvalid tag name`);
     if (!newName)
       return window.alert(`新标签名不可以为空！\nEmpty New Tag Name!`);
-    if (userTags.includes(newName))
+    const type = featurePublicationType.value === "show" ? "public" : "private";
+    if (userTagDict[type].find((e) => e.tag === newName))
       return window.alert(
         `请使用使用不同的新标签名称！\nPlease use a different new tag name!`
       );
     if (
-      !window.confirm(`是否将标签【${tag}】重命名为【${newName}】？\n与之关联的作品标签与同义词词典将被更新。
-Tag ${tag} will be renamed to ${newName}.\n All related works and synonym dictionary wil be updated. Is this okay?`)
+      !window.confirm(`是否将标签【${tag}】重命名为【${newName}】？\n与之关联的作品标签将被更新。
+Tag ${tag} will be renamed to ${newName}.\n All related works wil be updated. Is this okay?`)
     )
       return;
     featureFetchWorks().then(async (works) => {
@@ -1976,7 +1985,10 @@ Tag ${tag} will be renamed to ${newName}.\n All related works and synonym dictio
           `没有获取到收藏夹内容，操作中断，请检查选项下是否有作品\nFetching bookmark information failed. Abort operation. Please check the existence of works with the configuration`
         );
       }
-      if (synonymDict[tag]) {
+      const updateDict = featureModal.querySelector(
+        "#feature_tag_update_dict"
+      ).checked;
+      if (updateDict && synonymDict[tag]) {
         const value = synonymDict[tag];
         delete synonymDict[tag];
         synonymDict[newName] = value;
