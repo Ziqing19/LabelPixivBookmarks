@@ -118,6 +118,14 @@
   - By default, the script will categorize those NSFW works into the R-18 tag
   - If you don't want the tag, set it as *No* before starting
 
+- Whether NSFW works will be labeled as #R-18?
+  - By default, the script will not categorize those SFW works into the SFW tag
+  - If you need to label the tag, set it as *Yes* before starting
+
+- Whether AI-generated works will be labeled as AI
+  - By default, the script will not label AI-generated works
+  - Set the config as *Yes* to distinguish them
+
 ## Remove All Tags from Selected Works
 
 - The script can help you remove all tags from selected artworks easily
@@ -154,9 +162,15 @@
 ## Additional Functions
 
 - Some scattered and independent functions are resided in this page
-- Click on ***Delete This Tag*** button to the tag from all related works (select tag1, tag1,tag2 => tag2)
-- Click on ***Clear Work Tags*** button to set all related works to uncategorized (select tag1, tag1,tag2 => uncategorized)
-- Click on ***Toggle Publication Type*** button to toggle the publication type of related works between public and private
+- Tags
+  - Click on ***Toggle Publication Type*** button to toggle the publication type of related works between public and private
+  - Click on ***Delete This Tag*** button to the tag from all related works (select tag1, tag1,tag2 => tag2)
+  - Click on ***Clear Work Tags*** button to set all related works to uncategorized (select tag1, tag1,tag2 => uncategorized)
+  - Enter a new tag name (cannot duplicate) and click on ***Rename Tag*** to update the tag name, as well as the name in synonym dictionary and all related works
+- Bookmarks
+  - Still in development. Meant to back up the whole bookmarks and retrieve information when necessary
+  - When you find some works got deleted/private, and you have a previous version of backup, Click on ***Lookup Invalid Works*** and choose the backup to make a comparison.
+  - The lookup function relies on the order of your bookmarks. By indexing and locating its previous work id, the script would find the information of the invalid work.
 
 ## FAQ
 
@@ -296,9 +310,17 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
   - 默认为对公开收藏的作品进行自动标签
   
 - 是否为非全年龄作品标记#R-18标签
-  - 默认会将非全年龄向作品归入R-18标签
-  - 如果不需要该标签可以设置为忽略
+  - 默认会将非全年龄向作品归入#R-18标签
+  - 如果不需要该标签可以设置为*忽略*
+
+- 是否为全年龄作品标记#SFW标签
+  - 默认不会将全年龄向作品归入#SFW标签
+  - 如果需要该标签可以设置为*标记*
   
+- 是否为AI生成的作品标记#AI标签
+  - 默认不会标记
+  - 如果需要该功能请选择*标记*
+
 ## 清除作品的所有标签
 
 - 除了自动标签，这里还提供了能够批量清除作品标签的功能
@@ -339,9 +361,16 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
 ## 其他功能
 
 - 部分零散且独立的功能将会放置在这个页面
-- 点击【删除该标签】将从所有关联作品中移除该标签（选择Tag1，Tag1,Tag2 => Tag2）
-- 点击【清除作品标签】将从所有关联作品中移除所有标签（选择Tag1，Tag1,Tag2 => 未分类）
-- 点击【更改作品公开类型】将切换所有关联作品的公开类型
+- 标签相关
+  - 点击【更改作品公开类型】将切换所有关联作品的公开类型
+  - 点击【删除该标签】将从所有关联作品中移除该标签（选择Tag1，Tag1,Tag2 => Tag2）
+  - 点击【清除作品标签】将从所有关联作品中移除所有标签（选择Tag1，Tag1,Tag2 => 未分类）
+  - 输入新标签名（不可重复）并点击【更改标签名称】来重命名标签，同义词词典与关联作品都将被更新
+- 收藏夹相关
+  - 开发中，预期使用备份的收藏夹数据在需要的时候取回部分信息
+  - 点击【备份收藏夹】将整个收藏夹保存为JSON格式
+  - 当用户发现部分作品失效，并持有较早时期的收藏夹备份时，点击【查询失效作品信息】并提供较早的备份后，脚本将会对比并显示作品失效前的相关信息
+  - 脚本依靠收藏夹中作品的顺序进行比较，在收藏顺序发生较大变化时可能无法正确展示结果
 
 ## 常见问题
 
