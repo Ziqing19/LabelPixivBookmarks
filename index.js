@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      5.4
+// @version      5.5
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -22,6 +22,8 @@
 
 const latest = `♢ 新增迁移标签名功能（在其他功能中）
 ♢ Added functions to rename a tag and migrate work tags (in additional functions)
+♢ 新增备份和导入收藏夹功能
+♢ Added functions to back up and import bookmarks
 ♢ 新增标记AI作画至#AI标签的功能
 ♢ Added options to label AI-generated works as #AI tag`;
 
@@ -245,6 +247,25 @@ async function fetchAllBookmarksByTag(
   return totalWorks;
 }
 
+async function addBookmark(illust_id, restrict, tags) {
+  const resRaw = await fetch("/ajax/illusts/bookmarks/add", {
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json; charset=utf-8",
+      "x-csrf-token": token,
+    },
+    body: JSON.stringify({
+      illust_id,
+      restrict,
+      comment: "",
+      tags,
+    }),
+    method: "POST",
+  });
+  await delay(500);
+  return resRaw;
+}
+
 async function updateBookmarkTags(
   bookmarkIds,
   addTags,
@@ -291,7 +312,7 @@ async function updateBookmarkTags(
     if (progressBar) {
       const offset = i * bookmarkBatchSize;
       progressBar.innerText = offset + "/" + bookmarkIds.length;
-      const ratio = (offset / bookmarkIds.length).toFixed(2);
+      const ratio = ((offset / bookmarkIds.length) * 100).toFixed(2);
       progressBar.style.width = ratio + "%";
     }
   }
@@ -332,7 +353,7 @@ async function updateBookmarkRestrict(
     if (progressBar) {
       const offset = i * bookmarkBatchSize;
       progressBar.innerText = offset + "/" + bookmarkIds.length;
-      const ratio = (offset / bookmarkIds.length).toFixed(2);
+      const ratio = ((offset / bookmarkIds.length) * 100).toFixed(2);
       progressBar.style.width = ratio + "%";
     }
   }
@@ -1491,13 +1512,13 @@ function createModalElements() {
         <button class="d-none" id="start_label_button"></button>
       </form>
       <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭 / Close</button>
-        <button type="button" class="btn btn-outline-danger me-3" style="white-space: nowrap"
+        <button type="button" class="btn btn-outline-secondary me-3" data-bs-dismiss="modal">关闭 / Close</button>
+        <button type="button" class="btn btn-outline-danger me-auto" style="white-space: nowrap"
           id="footer_stop_button">停止 / Stop
         </button>
-        <button type="button" class="btn btn-outline-primary ms-auto"
+        <button type="button" class="btn btn-outline-primary me-3"
           onclick="window.location.reload();">刷新 / Refresh</button>
-        <button type="button" class="btn btn-outline-primary ms-3" style="white-space: nowrap"
+        <button type="button" class="btn btn-outline-primary" style="white-space: nowrap"
           id="footer_label_button">开始 / Start
         </button>
       </div>
@@ -1858,14 +1879,44 @@ function createModalElements() {
         <hr class="my-3" />
         <div class="mb-4">
           <div class="fw-light mb-3">
-            实验功能：备份整个收藏夹，可用于查找失效作品信息，或恢复收藏夹状态（开发中）<br />
-            Experimental: Backup all bookmarks, in order to look up deleted/privated works, or restore the bookmarks (in development)
+            备份收藏夹，可用于查找失效作品信息，或在其他账户上导入收藏<br />
+            Backup the bookmarks, in order to look up deleted/privated works, or import them on another account
           </div>
-          <div class="mb-3" id="feature_bookmark_buttons">
+          <div class="mb-2" id="feature_bookmark_buttons">
             <button class="btn btn-outline-primary me-3">备份收藏夹 / Backup Bookmarks</button>
             <button class="btn btn-outline-primary">查询失效作品信息 / Lookup Invalid Works</button>
           </div>
-          
+          <div class="mb-3" id="feature_import_bookmark">
+            <button class="btn btn-outline-primary mb-3">导入收藏夹 / Import Bookmarks</button>
+            <div class="d-none" id="feature_import_bookmark_hide">
+              <div class="mb-2 fw-light">
+                选择需要导入的标签进行导入。对于已存在的收藏，可以选择已收藏作品标签的合并模式。<br />再次点击上方按钮重新选择备份文件<br />
+                Select desired tag to import. For existing bookmarks, two options are provided to merge tags. <br /> Click upper button to reselect another backup file.
+              </div>
+              <div class="row mb-3">
+                <div class="col-3">
+                  <label for="feature_import_bookmark_publication" class="form-label fw-light">公开类型 / Publication</label>
+                  <select class="form-select ${bgColor}" id="feature_import_bookmark_publication">
+                      <option value="show">公开收藏 / Public</option>
+                      <option value="hide">私密收藏 / Private</option>
+                   </select>
+                </div>
+                <div class="col-5">
+                  <label for="feature_import_bookmark_tag" class="form-label fw-light">作品标签 / Tag</label>
+                  <select class="col-6 form-select flex-grow-1 ${bgColor}" id="feature_import_bookmark_tag"></select>
+                </div>
+                <div class="col-4">
+                  <label for="feature_import_bookmark_tag" class="form-label fw-light">模式 / Mode</label>
+                  <select class="col-6 form-select flex-grow-1 ${bgColor}" id="feature_import_bookmark_mode">
+                    <option value="merge">合并 / Merge</option>
+                    <option value="override">覆盖 / Override</option>
+                    <option value="skip">跳过 / Skip</option>
+                  </select>
+                </div>
+              </div>
+              <button class="btn btn-outline-primary me-3">导入 / Import</button>
+            </div>
+          </div>
           <div class="d-none" id="feature_bookmark_display"></div>
         </div>
         <div class="fw-bold text-center mt-4 d-none" id="feature_prompt"></div>
@@ -1875,11 +1926,16 @@ function createModalElements() {
         </div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary me-auto" data-bs-dismiss="modal">关闭 / Close</button>
-        <button type="button" class="btn btn-outline-danger" onclick="window.runFlag = false">停止 / Stop</button>
+        <button type="button" class="btn btn-outline-secondary me-3" data-bs-dismiss="modal">关闭 / Close</button>
+        <button type="button" class="btn btn-outline-primary me-auto" onclick="window.location.reload();">刷新 / Refresh</button>
+        <button type="button" class="btn btn-outline-danger" id="feature_footer_stop_button">停止 / Stop</button>
       </div>
     </div>
   `;
+  featureModal
+    .querySelector("#feature_footer_stop_button")
+    .addEventListener("click", () => (window.runFlag = false));
+
   const featurePrompt = featureModal.querySelector("#feature_prompt");
   const featureProgress = featureModal.querySelector("#feature_modal_progress");
   const featureProgressBar = featureModal.querySelector(
@@ -1895,18 +1951,20 @@ function createModalElements() {
     .querySelector("#feature_tag_buttons")
     .querySelectorAll("button");
   async function featureFetchWorks(tag, publicationType, progressBar) {
+    if (window.runFlag === false) return;
     const tag_ = tag || featureTag.value;
     const publicationType_ = publicationType || featurePublicationType.value;
+    const progressBar_ = progressBar || featureProgressBar;
     window.runFlag = true;
     featurePrompt.innerText =
       "正在获取收藏夹信息 / Fetching bookmark information";
     featurePrompt.classList.remove("d-none");
+    if (!progressBar) featureProgress.classList.remove("d-none");
     const totalWorks = await fetchAllBookmarksByTag(
       tag_,
       publicationType_,
-      progressBar
+      progressBar_
     );
-    featurePrompt.classList.add("d-none");
     if (DEBUG) console.log(totalWorks);
     return totalWorks;
   }
@@ -1958,7 +2016,7 @@ All works of tag ${tag || "All Works"} and type ${
     featureFetchWorks().then(clearBookmarkTags)
   );
   // rename tag
-  featureTagButtons[3].addEventListener("click", () => {
+  featureTagButtons[3].addEventListener("click", async () => {
     const tag = featureTag.value;
     let newName = featureModal.querySelector(
       "input#feature_new_tag_name"
@@ -1971,42 +2029,68 @@ All works of tag ${tag || "All Works"} and type ${
       return window.alert(`新标签名不可以为空！\nEmpty New Tag Name!`);
     const type = featurePublicationType.value === "show" ? "public" : "private";
     if (userTagDict[type].find((e) => e.tag === newName))
-      return window.alert(
-        `请使用使用不同的新标签名称！\nPlease use a different new tag name!`
-      );
+      if (
+        !window.confirm(
+          `将会合并标签【${tag}】至【${newName}】，是否继续？\nWill merge tag ${tag} into ${newName}. Is this Okay?`
+        )
+      )
+        return;
     if (
-      !window.confirm(`是否将标签【${tag}】重命名为【${newName}】？\n与之关联的作品标签将被更新。
-Tag ${tag} will be renamed to ${newName}.\n All related works wil be updated. Is this okay?`)
+      !window.confirm(`是否将标签【${tag}】重命名为【${newName}】？\n与之关联的作品标签将被更新，该操作将同时影响公开和非公开收藏
+Tag ${tag} will be renamed to ${newName}.\n All related works (both public and private) will be updated. Is this okay?`)
     )
       return;
-    featureFetchWorks().then(async (works) => {
-      if (!works?.length) {
-        return alert(
-          `没有获取到收藏夹内容，操作中断，请检查选项下是否有作品\nFetching bookmark information failed. Abort operation. Please check the existence of works with the configuration`
-        );
+    const updateDict = featureModal.querySelector(
+      "#feature_tag_update_dict"
+    ).checked;
+    if (updateDict && synonymDict[tag]) {
+      const value = synonymDict[tag];
+      delete synonymDict[tag];
+      synonymDict[newName] = value;
+      const newDict = {};
+      for (let key of sortByParody(Object.keys(synonymDict))) {
+        newDict[key] = synonymDict[key];
       }
-      const updateDict = featureModal.querySelector(
-        "#feature_tag_update_dict"
-      ).checked;
-      if (updateDict && synonymDict[tag]) {
-        const value = synonymDict[tag];
-        delete synonymDict[tag];
-        synonymDict[newName] = value;
-        const newDict = {};
-        for (let key of sortByParody(Object.keys(synonymDict))) {
-          newDict[key] = synonymDict[key];
-        }
-        synonymDict = newDict;
-        setValue("synonymDict", synonymDict);
-      }
-      const ids = works.map((work) => work["bookmarkData"]["id"]);
-      const instance = bootstrap_.Modal.getOrCreateInstance(progressModal);
-      instance.show();
-      await updateBookmarkTags(ids, [newName], [tag]);
-      setTimeout(() => {
-        instance.hide();
-        if (window.runFlag && !DEBUG) window.location.reload();
-      }, 1000);
+      synonymDict = newDict;
+      setValue("synonymDict", synonymDict);
+    }
+    const startTime = Date.now();
+    featurePrompt.innerText = "更新中 / Updating";
+    featurePrompt.classList.remove("d-none");
+    featureProgress.classList.remove("d-none");
+    const id = setInterval(() => {
+      fetch(
+        `https://www.pixiv.net/ajax/illusts/bookmarks/rename_tag_progress?lang=${lang}`
+      )
+        .then((resRaw) => resRaw.json())
+        .then((res) => {
+          if (res.body["isInProgress"]) {
+            const estimate = res.body["estimatedSeconds"];
+            const elapsed = (Date.now() - startTime) / 1000;
+            const ratio =
+              Math.min((elapsed / (elapsed + estimate)) * 100, 100).toFixed(2) +
+              "%";
+            featureProgressBar.innerText = ratio;
+            featureProgressBar.style.width = ratio;
+          } else {
+            clearInterval(id);
+            featureProgressBar.innerText = "100%";
+            featureProgressBar.style.width = "100%";
+            featurePrompt.innerText = "更新成功 / Update Successfully";
+            setTimeout(() => {
+              if (!DEBUG) window.location.reload();
+            }, 1000);
+          }
+        });
+    }, 1000);
+    await fetch("https://www.pixiv.net/ajax/illusts/bookmarks/rename_tag", {
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json; charset=utf-8",
+        "x-csrf-token": token,
+      },
+      body: JSON.stringify({ newTagName: newName, oldTagName: tag }),
+      method: "POST",
     });
   });
 
@@ -2019,17 +2103,23 @@ Tag ${tag} will be renamed to ${newName}.\n All related works wil be updated. Is
     featureProgress.classList.remove("d-none");
     const show = await featureFetchWorks("", "show", featureProgressBar);
     const hide = await featureFetchWorks("", "hide", featureProgressBar);
-    const bookmarks = { show, hide };
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(
-      new Blob([JSON.stringify(bookmarks)], { type: "application/json" })
-    );
-    a.setAttribute(
-      "download",
-      `label_pixiv_bookmarks_backup_${new Date().toLocaleDateString()}.json`
-    );
-    a.click();
-    featureProgress.classList.add("d-none");
+    if (window.runFlag) {
+      const bookmarks = { show, hide };
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(
+        new Blob([JSON.stringify(bookmarks)], { type: "application/json" })
+      );
+      a.setAttribute(
+        "download",
+        `label_pixiv_bookmarks_backup_${new Date().toLocaleDateString()}.json`
+      );
+      a.click();
+      featurePrompt.innerText = "备份成功 / Backup successfully";
+      featureProgress.classList.add("d-none");
+    } else {
+      featurePrompt.innerText = "操作中断 / Operation Aborted";
+    }
+    delete window.runFlag;
   });
   // lookup invalid
   const featureBookmarkDisplay = featureModal.querySelector(
@@ -2096,12 +2186,188 @@ Tag ${tag} will be renamed to ${newName}.\n All related works wil be updated. Is
           alert("无法加载收藏夹 / Fail to load bookmarks\n" + err);
           console.log(err);
         } finally {
+          featurePrompt.classList.add("d-none");
           featureProgress.classList.add("d-none");
         }
       };
       reader.readAsText(evt.target.files[0]);
     });
     input.click();
+  });
+  // import bookmarks
+  const importBookmarkButtons = featureModal
+    .querySelector("#feature_import_bookmark")
+    .querySelectorAll("button");
+  importBookmarkButtons[0].addEventListener("click", async () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "application/json";
+    input.addEventListener("change", (evt) => {
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        let json = {};
+        try {
+          eval("json = " + evt.target.result.toString());
+          if (!json["show"])
+            return alert(
+              "请检查是否加载了正确的收藏夹备份\nPlease check if the backup file is correct"
+            );
+          window.bookmarkImport = json;
+          const selectTag = featureModal.querySelector(
+            "#feature_import_bookmark_tag"
+          );
+          while (selectTag.firstChild) {
+            selectTag.removeChild(selectTag.firstChild);
+          }
+          const tagShow = json["show"]
+            .map((w) => w.associatedTags || [])
+            .reduce((a, b) => [...new Set(a.concat(b))], []);
+          const tagHide = json["hide"]
+            .map((w) => w.associatedTags || [])
+            .reduce((a, b) => [...new Set(a.concat(b))], []);
+          console.log("tagShow", tagShow);
+          console.log("tagHide", tagHide);
+          const tagAll = sortByParody([...new Set(tagShow.concat(tagHide))]);
+          console.log("tagAll", tagAll);
+          const optionAll = document.createElement("option");
+          optionAll.value = "";
+          optionAll.innerText = `所有收藏 / All Works (${json["show"].length}, ${json["hide"].length})`;
+          const optionUncat = document.createElement("option");
+          optionUncat.value = "未分類";
+          const uncatS = json["show"].filter(
+            (w) => !(w.associatedTags || []).length
+          ).length;
+          const uncatH = json["hide"].filter(
+            (w) => !(w.associatedTags || []).length
+          ).length;
+          optionUncat.innerText = `未分类作品 / Uncategorized Works (${uncatS}, ${uncatH})`;
+          selectTag.appendChild(optionAll);
+          selectTag.appendChild(optionUncat);
+          tagAll.forEach((t) => {
+            const option = document.createElement("option");
+            option.value = t;
+            const s = json["show"].filter((w) =>
+              (w.associatedTags || []).includes(t)
+            ).length;
+            const h = json["hide"].filter((w) =>
+              (w.associatedTags || []).includes(t)
+            ).length;
+            option.innerText = `${t} (${s}, ${h})`;
+            selectTag.appendChild(option);
+          });
+          featureModal
+            .querySelector("#feature_import_bookmark_hide")
+            .classList.remove("d-none");
+        } catch (err) {
+          alert("无法加载收藏夹 / Fail to load bookmarks\n" + err);
+          console.log(err);
+        }
+      };
+      reader.readAsText(evt.target.files[0]);
+    });
+    input.click();
+  });
+  importBookmarkButtons[1].addEventListener("click", async () => {
+    if (!window.bookmarkImport?.["show"])
+      return alert("加载收藏夹备份失败！\nFail to load backup bookmarks");
+    const json = window.bookmarkImport;
+    const pub = featureModal.querySelector(
+      "#feature_import_bookmark_publication"
+    ).value;
+    const tag = featureModal.querySelector(
+      "#feature_import_bookmark_tag"
+    ).value;
+    const mode = featureModal.querySelector(
+      "#feature_import_bookmark_mode"
+    ).value;
+
+    const importWorks = json[pub].filter((w) => {
+      if (tag === "") return true;
+      else if (tag === "未分類") return !w.associatedTags?.length;
+      else return w.associatedTags?.includes(tag);
+    });
+    importWorks.reverse();
+
+    featureProgress.classList.remove("d-none");
+    const existWorks = await featureFetchWorks(tag, pub, featureProgressBar);
+    featurePrompt.classList.remove("d-none");
+
+    const errorList = [];
+    window.runFlag = true;
+    for (let i = 0; i < importWorks.length; i++) {
+      const w = importWorks[i];
+      if (!window.runFlag) break;
+      let { id, title, restrict, associatedTags, alt } = w;
+      if (title === "-----") {
+        errorList.push({
+          message: "The creator has limited who can view this content",
+          ...w,
+        });
+        continue;
+      }
+      if (!associatedTags) associatedTags = [];
+      const ew = existWorks.find((ew) => ew.id === id);
+      if (ew) {
+        // note that when work does not have target tag but is in exist bookmarked works, skip will not take effect
+        if (mode === "skip") continue;
+        const diff = (ew.associatedTags || []).filter(
+          (t) => !associatedTags.includes(t)
+        );
+        associatedTags = associatedTags.filter(
+          (t) => !(ew.associatedTags || []).includes(t)
+        );
+        if (!associatedTags) continue;
+        if (mode === "merge")
+          await updateBookmarkTags([ew["bookmarkData"]["id"]], associatedTags);
+        else if (mode === "override")
+          await updateBookmarkTags(
+            [ew["bookmarkData"]["id"]],
+            associatedTags,
+            diff
+          );
+      } else {
+        const resRaw = await addBookmark(id, restrict, associatedTags);
+        if (!resRaw.ok) {
+          const res = await resRaw.json();
+          errorList.push({ ...res, ...w });
+        }
+      }
+      featurePrompt.innerText = alt;
+      featureProgressBar.innerText = i + "/" + importWorks.length;
+      const ratio = ((i / importWorks.length) * 100).toFixed(2);
+      featureProgressBar.style.width = ratio + "%";
+    }
+    if (!window.runFlag) {
+      featurePrompt.innerText = "操作中断 / Operation Aborted";
+    } else {
+      featurePrompt.innerText = "导入成功 / Import successfully";
+      featureProgress.classList.add("d-none");
+    }
+    if (errorList.length) {
+      console.log(errorList);
+      featurePrompt.innerText = "部分导入成功 / Import Partially Successful";
+      featureBookmarkDisplay.classList.remove("d-none");
+      featureBookmarkDisplay.innerText = errorList
+        .map((w) => {
+          const {
+            id,
+            title,
+            tags,
+            userId,
+            userName,
+            alt,
+            associatedTags,
+            xRestrict,
+            message,
+          } = w;
+          return `${alt}\ntitle: ${title}\nid: ${id}\nuser: ${userName} - ${userId}\ntags: ${(
+            tags || []
+          ).join(", ")}\nuserTags: ${(associatedTags || []).join(
+            ", "
+          )}\nrestrict: ${xRestrict ? "R-18" : "SFW"}\nmessage: ${message}`;
+        })
+        .join("\n\n");
+    }
   });
 
   const progressModal = document.createElement("div");

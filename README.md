@@ -10,11 +10,11 @@
 
 ## Latest
 
-- Shuffled Images (manually enable it in the extension menu): load images by tag and batch size; save them to new tags by batch
+- Added functions to rename a tag and migrate work tags (in additional functions)
 
-- Gallery Mode (available in Search Images and Shuffled Images page): click on the thumbnail to enter, and use arrow keys to manipulate
+- Added functions to back up and import bookmarks
 
-- Additional Functions (manually enable it in the extension menu): manage bookmarks of specified tag in bulk (delete tag, set publication type, etc.)
+- Added options to label AI-generated works as #AI tag
 
 ## Intro
 
@@ -207,11 +207,11 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
 
 ## 最近更新
 
-- 随机图片功能（需要在插件菜单中点击开启）：可以加载指定标签下所有图片并按批次随机展示并按分组存储至新标签
+- 新增迁移标签名功能（在其他功能中）
 
-- 画廊模式（在随机图片和搜索图片页面下生效）：点击图片缩略图可以全屏浏览图片，使用方向键操控
+- 新增备份和导入收藏夹功能
 
-- 其他功能（需要在插件菜单中点击开启）：可以按照标签批量管理图片，提供删除、设置公开类型等功能
+- 新增标记AI作画至#AI标签的功能
 
 ## 工作原理
 
