@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      5.5
+// @version      5.6
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -264,6 +264,39 @@ async function addBookmark(illust_id, restrict, tags) {
   });
   await delay(500);
   return resRaw;
+}
+
+async function removeBookmark(bookmarkIds, progressBar) {
+  async function run(ids) {
+    await fetch("/ajax/illusts/bookmarks/remove", {
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json; charset=utf-8",
+        "x-csrf-token": token,
+      },
+      body: JSON.stringify({ bookmarkIds: ids }),
+      method: "POST",
+    });
+    await delay(500);
+  }
+  const num = Math.ceil(bookmarkIds.length / bookmarkBatchSize);
+  for (let i of [...Array(num).keys()]) {
+    if (!window.runFlag) break;
+    const ids = bookmarkIds.filter(
+      (_, j) => j >= i * bookmarkBatchSize && j < (i + 1) * bookmarkBatchSize
+    );
+    await run(ids);
+    if (progressBar) {
+      const offset = i * bookmarkBatchSize;
+      progressBar.innerText = offset + "/" + bookmarkIds.length;
+      const ratio = ((offset / bookmarkIds.length) * 100).toFixed(2);
+      progressBar.style.width = ratio + "%";
+    }
+  }
+  if (progressBar) {
+    progressBar.innerText = bookmarkIds.length + "/" + bookmarkIds.length;
+    progressBar.style.width = "100%";
+  }
 }
 
 async function updateBookmarkTags(
@@ -1879,6 +1912,17 @@ function createModalElements() {
         <hr class="my-3" />
         <div class="mb-4">
           <div class="fw-light mb-3">
+            批量删除不可见作品，如果您有较早的收藏夹备份，可以使用下方的查询失效作品查找失效作品信息<br />
+            Batch removing deleted/private works. If you have a previous backup of your bookmarks, you can use 'Lookup Invalid Works' below to get those invalid work details.
+          </div>
+          <div class="mb-2" id="feature_batch_remove_invalid_buttons">
+            <button class="btn btn-outline-primary">加载失效作品信息 / Load Invalid Works</button>
+          </div>
+          <div class="d-none" id="feature_batch_remove_invalid_display"></div>
+        </div>
+        <hr class="my-3" />
+        <div class="mb-4">
+          <div class="fw-light mb-3">
             备份收藏夹，可用于查找失效作品信息，或在其他账户上导入收藏<br />
             Backup the bookmarks, in order to look up deleted/privated works, or import them on another account
           </div>
@@ -2093,7 +2137,84 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
       method: "POST",
     });
   });
-
+  // batch removing invalid bookmarks
+  const batchRemoveButton = featureModal
+    .querySelector("#feature_batch_remove_invalid_buttons")
+    .querySelector("button");
+  batchRemoveButton.addEventListener("click", async () => {
+    delete window.runFlag;
+    const display = featureModal.querySelector(
+      "#feature_batch_remove_invalid_display"
+    );
+    featureProgress.classList.remove("d-none");
+    const invalidShow = (
+      await featureFetchWorks("碧蓝航线", "show", featureProgressBar)
+    ).filter((w) => w.title === "-----");
+    console.log("invalidShow", invalidShow);
+    const invalidHide = (
+      await featureFetchWorks("碧蓝航线", "hide", featureProgressBar)
+    ).filter((w) => w.title === "-----");
+    console.log("invalidHide", invalidHide);
+    if (window.runFlag) {
+      featurePrompt.classList.add("d-none");
+      featureProgress.classList.add("d-none");
+      if (invalidShow.length && invalidHide.length) {
+        display.innerHTML =
+          `<div class="row">` +
+          [...invalidShow, ...invalidHide]
+            .map((w) => {
+              const zh = lang.includes("zh");
+              const { id, associatedTags, restrict, xRestrict } = w;
+              return `<div class="col-6 mb-2">ID: ${id}<br />${
+                zh ? "用户标签：" : "userTags: "
+              }${(associatedTags || []).join(", ")}<br />${
+                zh ? "公开情况：" : "publication: "
+              }${
+                restrict ? (zh ? "非公开" : "hide") : zh ? "公开" : "show"
+              }<br />${zh ? "限制级别：" : "restrict: "}${
+                xRestrict ? "R-18" : "SFW"
+              }</div>`;
+            })
+            .join("") +
+          `</div>`;
+        const confirmButton = document.createElement("button");
+        confirmButton.className = "btn btn-outline-danger mt-3";
+        confirmButton.innerText = "确认删除 / Confirm Removing";
+        confirmButton.addEventListener("click", async (evt) => {
+          evt.preventDefault();
+          if (
+            !window.confirm(
+              `是否确认批量删除失效作品\nInvalid works (deleted/private) will be removed. Is this okay?`
+            )
+          )
+            return;
+          window.runFlag = true;
+          const bookmarkIds = [...invalidShow, ...invalidHide].map(
+            (w) => w["bookmarkData"]["id"]
+          );
+          console.log(bookmarkIds);
+          featureProgress.classList.remove("d-none");
+          featurePrompt.classList.remove("d-none");
+          featurePrompt.innerText =
+            "删除中，请稍后 / Removing invalid bookmarks";
+          await removeBookmark(bookmarkIds, featureProgressBar);
+          featurePrompt.innerText =
+            "已删除，即将刷新页面 / Removed. The page is going to reload.";
+          setTimeout(() => {
+            if (window.runFlag && !DEBUG) window.location.reload();
+          }, 1000);
+        });
+        display.className = "mt-3";
+        display.appendChild(confirmButton);
+      } else {
+        display.innerHTML = "未检测到失效作品 / No invalid works detected";
+        display.className = "mt-3";
+      }
+    } else {
+      featurePrompt.innerText = "操作中断 / Operation Aborted";
+    }
+    delete window.runFlag;
+  });
   // bookmarks related
   const featureBookmarkButtons = featureModal
     .querySelector("#feature_bookmark_buttons")
@@ -2136,6 +2257,7 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
         const invalidArray = [];
         async function run(type) {
           const col = await featureFetchWorks("", type, featureProgressBar);
+          if (!runFlag) return;
           for (let work of col.filter((w) => w.title === "-----")) {
             const index = col.findIndex((w) => w.id === work.id);
             if (index === -1 || !index) {
@@ -2172,13 +2294,16 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
                 userName,
                 alt,
                 associatedTags,
+                restrict,
                 xRestrict,
               } = w;
               return `${alt}\ntitle: ${title}\nid: ${id}\nuser: ${userName} - ${userId}\ntags: ${(
                 tags || []
               ).join(", ")}\nuserTags: ${(associatedTags || []).join(
                 ", "
-              )}\nrestrict: ${xRestrict ? "R-18" : "SFW"}`;
+              )}\npublication: ${restrict ? "hide" : "show"}\nrestrict: ${
+                xRestrict ? "R-18" : "SFW"
+              }`;
             })
             .join("\n\n");
           featureBookmarkDisplay.classList.remove("d-none");
@@ -2457,6 +2582,13 @@ async function updateWorkInfo() {
 }
 
 async function initializeVariables() {
+  async function polyfill() {
+    const dataLayer = unsafeWindow_["dataLayer"][0];
+    uid = dataLayer["user_id"];
+    lang = dataLayer["lang"];
+    token = await fetchTokenPolyfill();
+  }
+
   try {
     pageInfo = Object.values(document.querySelector(".sc-x1dm5r-0"))[0][
       "return"
@@ -2465,12 +2597,10 @@ async function initializeVariables() {
     uid = pageInfo["client"]["userId"];
     token = pageInfo["client"]["token"];
     lang = pageInfo["client"]["lang"];
+    if (!uid || !token || !lang) await polyfill();
   } catch (err) {
     console.log(err);
-    const dataLayer = unsafeWindow_["dataLayer"][0];
-    uid = dataLayer["user_id"];
-    lang = dataLayer["lang"];
-    token = await fetchTokenPolyfill();
+    await polyfill();
   }
 
   userTags = await fetchUserTags();
