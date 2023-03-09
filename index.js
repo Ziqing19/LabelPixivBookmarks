@@ -17,10 +17,13 @@
 // @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
 // @license      MIT
+// @require      file:///C:\Users\mao\Documents\Repo\LabelPixivBookmarks\index.js
 
 // ==/UserScript==
 
-const latest = `♢ 新增迁移标签名功能（在其他功能中）
+const latest = `♢ 新增批量删除失效收藏功能（在其他功能中）
+♢ Added functions to batch removing invalid works (in additional functions)
+♢ 新增迁移标签名功能（在其他功能中）
 ♢ Added functions to rename a tag and migrate work tags (in additional functions)
 ♢ 新增备份和导入收藏夹功能
 ♢ Added functions to back up and import bookmarks
@@ -37,7 +40,8 @@ let uid,
   theme,
   generator,
   // workType,
-  feature;
+  feature,
+  cachedBookmarks = {};
 // noinspection TypeScriptUMDGlobal,JSUnresolvedVariable
 let unsafeWindow_ = unsafeWindow,
   GM_getValue_ = GM_getValue,
@@ -1924,14 +1928,14 @@ function createModalElements() {
         <div class="mb-4">
           <div class="fw-light mb-3">
             备份收藏夹，可用于查找失效作品信息，或在其他账户上导入收藏<br />
-            Backup the bookmarks, in order to look up deleted/privated works, or import them on another account
+            Backup the bookmarks, in order to look up deleted/privated work details, or import them on another account
           </div>
           <div class="mb-2" id="feature_bookmark_buttons">
             <button class="btn btn-outline-primary me-3">备份收藏夹 / Backup Bookmarks</button>
             <button class="btn btn-outline-primary">查询失效作品信息 / Lookup Invalid Works</button>
           </div>
           <div class="mb-3" id="feature_import_bookmark">
-            <button class="btn btn-outline-primary mb-3">导入收藏夹 / Import Bookmarks</button>
+            <button class="btn btn-outline-primary">导入收藏夹 / Import Bookmarks</button>
             <div class="d-none" id="feature_import_bookmark_hide">
               <div class="mb-2 fw-light">
                 选择需要导入的标签进行导入。对于已存在的收藏，可以选择已收藏作品标签的合并模式。<br />再次点击上方按钮重新选择备份文件<br />
@@ -1996,10 +2000,12 @@ function createModalElements() {
     .querySelectorAll("button");
   async function featureFetchWorks(tag, publicationType, progressBar) {
     if (window.runFlag === false) return;
+    window.runFlag = true;
     const tag_ = tag || featureTag.value;
     const publicationType_ = publicationType || featurePublicationType.value;
+    if (tag_ === "" && cachedBookmarks[publicationType_])
+      return cachedBookmarks[publicationType_];
     const progressBar_ = progressBar || featureProgressBar;
-    window.runFlag = true;
     featurePrompt.innerText =
       "正在获取收藏夹信息 / Fetching bookmark information";
     featurePrompt.classList.remove("d-none");
@@ -2010,7 +2016,9 @@ function createModalElements() {
       progressBar_
     );
     if (DEBUG) console.log(totalWorks);
-    return totalWorks;
+    if (tag_ === "" && totalWorks)
+      cachedBookmarks[publicationType_] = totalWorks;
+    return totalWorks || [];
   }
   // toggle publication type
   featureTagButtons[0].addEventListener("click", () =>
@@ -2142,38 +2150,45 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
     .querySelector("#feature_batch_remove_invalid_buttons")
     .querySelector("button");
   batchRemoveButton.addEventListener("click", async () => {
-    delete window.runFlag;
     const display = featureModal.querySelector(
       "#feature_batch_remove_invalid_display"
     );
     featureProgress.classList.remove("d-none");
     const invalidShow = (
-      await featureFetchWorks("碧蓝航线", "show", featureProgressBar)
+      await featureFetchWorks("", "show", featureProgressBar)
     ).filter((w) => w.title === "-----");
-    console.log("invalidShow", invalidShow);
+    if (DEBUG) console.log("invalidShow", invalidShow);
     const invalidHide = (
-      await featureFetchWorks("碧蓝航线", "hide", featureProgressBar)
+      await featureFetchWorks("", "hide", featureProgressBar)
     ).filter((w) => w.title === "-----");
-    console.log("invalidHide", invalidHide);
+    if (DEBUG) console.log("invalidHide", invalidHide);
     if (window.runFlag) {
       featurePrompt.classList.add("d-none");
       featureProgress.classList.add("d-none");
-      if (invalidShow.length && invalidHide.length) {
+      if (invalidShow.length || invalidHide.length) {
         display.innerHTML =
           `<div class="row">` +
           [...invalidShow, ...invalidHide]
             .map((w) => {
-              const zh = lang.includes("zh");
               const { id, associatedTags, restrict, xRestrict } = w;
-              return `<div class="col-6 mb-2">ID: ${id}<br />${
-                zh ? "用户标签：" : "userTags: "
-              }${(associatedTags || []).join(", ")}<br />${
-                zh ? "公开情况：" : "publication: "
-              }${
-                restrict ? (zh ? "非公开" : "hide") : zh ? "公开" : "show"
-              }<br />${zh ? "限制级别：" : "restrict: "}${
-                xRestrict ? "R-18" : "SFW"
-              }</div>`;
+              const l = lang.includes("zh") ? 0 : 1;
+              const info = [
+                ["作品ID：", "ID: ", id],
+                [
+                  "用户标签：",
+                  "User Tags: ",
+                  (associatedTags || []).join(", "),
+                ],
+                [
+                  "公开类型：",
+                  "Publication: ",
+                  restrict ? ["非公开", "hide"][l] : ["公开", "show"][l],
+                ],
+                ["限制分类：", "Restrict: ", xRestrict ? "R-18" : "SFW"],
+              ];
+              return `<div class="col-6 mb-2">${info
+                .map((i) => `${i[l] + i[2]}`)
+                .join("<br />")}</div>`;
             })
             .join("") +
           `</div>`;
@@ -2192,7 +2207,6 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
           const bookmarkIds = [...invalidShow, ...invalidHide].map(
             (w) => w["bookmarkData"]["id"]
           );
-          console.log(bookmarkIds);
           featureProgress.classList.remove("d-none");
           featurePrompt.classList.remove("d-none");
           featurePrompt.innerText =
@@ -2204,12 +2218,11 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
             if (window.runFlag && !DEBUG) window.location.reload();
           }, 1000);
         });
-        display.className = "mt-3";
         display.appendChild(confirmButton);
       } else {
-        display.innerHTML = "未检测到失效作品 / No invalid works detected";
-        display.className = "mt-3";
+        display.innerText = "未检测到失效作品 / No invalid works detected";
       }
+      display.className = "mt-3";
     } else {
       featurePrompt.innerText = "操作中断 / Operation Aborted";
     }
@@ -2257,22 +2270,13 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
         const invalidArray = [];
         async function run(type) {
           const col = await featureFetchWorks("", type, featureProgressBar);
-          if (!runFlag) return;
+          if (!window.runFlag) return;
           for (let work of col.filter((w) => w.title === "-----")) {
-            const index = col.findIndex((w) => w.id === work.id);
-            if (index === -1 || !index) {
-              invalidArray.push(work);
-              continue;
-            }
-            const prevId = col[index - 1].id;
-            const jsonId = json[type].findIndex((w) => w.id === prevId) + 1;
-            const w = json[type][jsonId];
-            if (!jsonId || !w) {
-              invalidArray.push(work);
-              continue;
-            }
-            invalidArray.push(w);
-            if (DEBUG) console.log(w);
+            const jsonWork = json[type].find(
+              (w) => w.id.toString() === work.id.toString()
+            );
+            invalidArray.push(jsonWork || work);
+            if (DEBUG) console.log(jsonWork);
           }
         }
         try {
@@ -2281,38 +2285,63 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
             return alert(
               "请检查是否加载了正确的收藏夹备份\nPlease check if the backup file is correct"
             );
+          if (DEBUG) console.log(json);
           featureProgress.classList.remove("d-none");
           await run("show");
           await run("hide");
-          featureBookmarkDisplay.innerText = invalidArray
-            .map((w) => {
-              const {
-                id,
-                title,
-                tags,
-                userId,
-                userName,
-                alt,
-                associatedTags,
-                restrict,
-                xRestrict,
-              } = w;
-              return `${alt}\ntitle: ${title}\nid: ${id}\nuser: ${userName} - ${userId}\ntags: ${(
-                tags || []
-              ).join(", ")}\nuserTags: ${(associatedTags || []).join(
-                ", "
-              )}\npublication: ${restrict ? "hide" : "show"}\nrestrict: ${
-                xRestrict ? "R-18" : "SFW"
-              }`;
-            })
-            .join("\n\n");
-          featureBookmarkDisplay.classList.remove("d-none");
+          if (invalidArray.length) {
+            featureBookmarkDisplay.innerHTML =
+              `<div class="row">` +
+              invalidArray
+                .map((w) => {
+                  const {
+                    id,
+                    title,
+                    tags,
+                    userId,
+                    userName,
+                    alt,
+                    associatedTags,
+                    restrict,
+                    xRestrict,
+                  } = w;
+                  const l = lang.includes("zh") ? 0 : 1;
+                  const info = [
+                    ["", "", alt],
+                    ["作品ID：", "ID: ", id],
+                    ["作品名称：", "Title: ", title],
+                    ["用户名称：", "User: ", userName + " - " + userId],
+                    ["作品标签：", "Tags: ", (tags || []).join(", ")],
+                    [
+                      "用户标签：",
+                      "User Tags: ",
+                      (associatedTags || []).join(", "),
+                    ],
+                    [
+                      "公开类型：",
+                      "Publication: ",
+                      restrict ? ["非公开", "hide"][l] : ["公开", "show"][l],
+                    ],
+                    ["限制分类：", "Restrict: ", xRestrict ? "R-18" : "SFW"],
+                  ];
+                  return `<div class="col-6 mb-2">${info
+                    .map((i) => `${i[l] + i[2]}`)
+                    .join("<br />")}</div>`;
+                })
+                .join("") +
+              `</div>`;
+          } else {
+            featureBookmarkDisplay.innerText =
+              "未检测到失效作品 / No invalid works detected";
+          }
+          featureBookmarkDisplay.className = "mt-3";
         } catch (err) {
           alert("无法加载收藏夹 / Fail to load bookmarks\n" + err);
           console.log(err);
         } finally {
           featurePrompt.classList.add("d-none");
           featureProgress.classList.add("d-none");
+          delete window.runFlag;
         }
       };
       reader.readAsText(evt.target.files[0]);
