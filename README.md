@@ -67,6 +67,7 @@
 - Sometimes the author does not provide the so-called *official* tag for the artwork. This inconsistency makes it hard for us to do labeling. 
 - Here we introduce the synonym dictionary that stores tag-alias pairs. All alias for a tag will be regarded as the same as the tag itself.
 - For example, the tags of the image contains [EVA] instead of [新世紀エヴァンゲリオン], so that it won't be categorized into [新世紀エヴァンゲリオン].
+- You can find a sample file in Load Dict section which can be used to load for first-time users.
 
 ![step4](./assets/05.png)
 
@@ -262,6 +263,7 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
 
 - 有些时候作者并没有为作品或人物提供所谓的***官方名称***，这就导致自动识别标签变得困难。如果我们使用一个同义词词典储存一个标签的全部同义词——或者叫别名，那么分类的结果将会更加整洁
 - 例如此作品下有【eva】标签，但没有【新世紀エヴァンゲリオン】标签，因此不会被自动分类到【新世紀エヴァンゲリオン】标签下
+- 在加载词典区域下，首次使用的用户可以尝试下载样例词典用于导入
 
 ![step4](./assets/05.png)
 

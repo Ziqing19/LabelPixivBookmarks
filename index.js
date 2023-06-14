@@ -17,7 +17,6 @@
 // @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
 // @license      MIT
-// @require      file:///C:\Users\mao\Documents\Repo\LabelPixivBookmarks\index.js
 
 // ==/UserScript==
 
@@ -41,7 +40,8 @@ let uid,
   generator,
   // workType,
   feature,
-  cachedBookmarks = {};
+  cachedBookmarks = {},
+  DEBUG;
 // noinspection TypeScriptUMDGlobal,JSUnresolvedVariable
 let unsafeWindow_ = unsafeWindow,
   GM_getValue_ = GM_getValue,
@@ -563,7 +563,6 @@ async function handleDeleteTag(evt) {
   await deleteTag(tag, restrict ? "hide" : "show");
 }
 
-const DEBUG = false;
 async function handleLabel(evt) {
   evt.preventDefault();
 
@@ -1013,9 +1012,11 @@ function displayWork(work, resultsDiv, textColor) {
 }
 
 function galleryMode(evt, work) {
-  const modal = evt.path.find((el) => el.id.includes("modal"));
+  const modal = evt.composedPath().find((el) => el.id.includes("modal"));
   const scrollTop = modal.scrollTop;
-  const dialog = evt.path.find((el) => el.className.includes("modal-dialog"));
+  const dialog = evt
+    .composedPath()
+    .find((el) => el.className.includes("modal-dialog"));
   dialog.classList.add("modal-fullscreen");
   const title = dialog.querySelector(".modal-header");
   const body = dialog.querySelector(".modal-body");
@@ -1434,6 +1435,18 @@ function createModalElements() {
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-counterclockwise" viewBox="0 0 16 16">
                       <path fill-rule="evenodd" d="M8 3a5 5 0 1 1-4.546 2.914.5.5 0 0 0-.908-.417A6 6 0 1 0 8 2v1z"/>
                       <path d="M8 4.466V.534a.25.25 0 0 0-.41-.192L5.23 2.308a.25.25 0 0 0 0 .384l2.36 1.966A.25.25 0 0 0 8 4.466z"/>
+                    </svg>
+                  </button>
+                </div>
+                <div class="mb-3 d-flex">
+                  <div class="fw-light me-auto">
+                    点击右侧可以下载样例词典用于导入
+                    <br />
+                    Click the right button to get a synonym dictionary sample for loading
+                  </div>
+                  <button type="button" class="btn btn-outline-primary ms-3" id="label_dict_sample">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-down" viewBox="0 0 16 16">
+                      <path fill-rule="evenodd" d="M8 1a.5.5 0 0 1 .5.5v11.793l3.146-3.147a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 .708-.708L7.5 13.293V1.5A.5.5 0 0 1 8 1z"/>
                     </svg>
                   </button>
                 </div>
@@ -3232,6 +3245,21 @@ function setSynonymEventListener() {
   document
     .querySelector("button#label_restore_dict")
     .addEventListener("click", restoreSynonymDict);
+  // get sample
+  document
+    .querySelector("button#label_dict_sample")
+    .addEventListener("click", () => {
+      const s =
+        '{"Fate":["FGO","Fate/GrandOrder","Fate/StayNight","Fate/Zero","Fate/Extra","Fate/ExtraCCC","Fate/Apocrypha"],"EVA":["新世紀エヴァンゲリオン","エヴァンゲリオン","evangelion","Evangelion","eva","EVA","新世纪福音战士"]}';
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(
+        new Blob([s], {
+          type: "application/json",
+        })
+      );
+      a.setAttribute("download", "synonym_dict_sample.json");
+      a.click();
+    });
   if (DEBUG) console.log("[Label Bookmarks] Synonym Dictionary Ready");
 }
 
@@ -3399,6 +3427,17 @@ function registerMenu() {
         window.location.reload();
       }
     );
+  DEBUG = getValue("DEBUG", "false") === "true";
+  if (DEBUG)
+    GM_registerMenuCommand_("关闭详细日志 / Disable Verbose Logging", () => {
+      setValue("DEBUG", "false");
+      window.location.reload();
+    });
+  else
+    GM_registerMenuCommand_("启用详细日志 / Enable Verbose Logging", () => {
+      setValue("DEBUG", "true");
+      window.location.reload();
+    });
 }
 
 (function () {
