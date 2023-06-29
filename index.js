@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      5.7
+// @version      5.8
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -50,9 +50,36 @@ let unsafeWindow_ = unsafeWindow,
   GM_getResourceURL_ = GM_getResourceURL,
   GM_registerMenuCommand_ = GM_registerMenuCommand;
 
-Array.prototype.toUpperCase = function () {
-  return this.map((i) => i.toUpperCase());
-};
+function getParodyName(tag) {
+  return (tag.split("(")[1] || "").split(")")[0];
+}
+
+function stringIncludes(s1, s2) {
+  const isString = (s) => typeof s === "string" || s instanceof String;
+  if (!isString(s1) || !isString(s2))
+    throw new Error("Argument is not a string");
+  return s1.includes(s2);
+}
+
+function arrayIncludes(array, element, func1, func2, fuzzy) {
+  if (!Array.isArray(array))
+    throw new TypeError("First argument is not an array");
+  let array1 = func1 ? array.map(func1) : array;
+  let array2 = Array.isArray(element) ? element : [element];
+  array2 = func2 ? array2.map(func2) : array2;
+  const el = [...array1, ...array2].find((i) => !i.toUpperCase);
+  if (el) {
+    console.log(el, array, element);
+    throw new TypeError(
+      `Element ${el.toString()} does not have method toUpperCase`
+    );
+  }
+  array1 = array1.map((i) => i.toUpperCase());
+  array2 = array2.map((i) => i.toUpperCase());
+  if (fuzzy)
+    return array2.every((i2) => array1.some((i1) => stringIncludes(i1, i2)));
+  else return array2.every((i) => array1.includes(i));
+}
 
 function isEqualObject(obj1, obj2) {
   if (typeof obj1 !== "object") return obj1 === obj2;
@@ -636,15 +663,9 @@ async function handleLabel(evt) {
       let intersection = userTags.filter((userTag) => {
         // if work tags includes this user tag
         if (
-          workTags.toUpperCase().includes(userTag.toUpperCase()) || // full tag
-          workTags
-            .toUpperCase()
-            .includes(userTag.toUpperCase().split("(")[0]) || // char name
-          workTags.some(
-            (workTag) =>
-              (workTag.toUpperCase().split("(")[1] || "").split(")")[0] ===
-              userTag
-          ) // parody name
+          arrayIncludes(workTags, userTag) || // full tag
+          arrayIncludes(workTags, userTag.split("(")[0]) || // char name
+          arrayIncludes(workTags, userTag, getParodyName) // parody name
         )
           return true;
         // if work tags match a user alias (exact match)
@@ -652,15 +673,9 @@ async function handleLabel(evt) {
           synonymDict[userTag] &&
           synonymDict[userTag].find(
             (alias) =>
-              workTags.toUpperCase().includes(alias.toUpperCase()) ||
-              workTags
-                .toUpperCase()
-                .includes(alias.toUpperCase().split("(")[0]) ||
-              workTags.some(
-                (workTag) =>
-                  (workTag.toUpperCase().split("(")[1] || "").split(")")[0] ===
-                  alias
-              ) // parody name
+              arrayIncludes(workTags, alias) ||
+              arrayIncludes(workTags, alias.split("(")[0]) ||
+              arrayIncludes(workTags, alias, getParodyName) // parody name
           )
         );
       });
@@ -669,14 +684,14 @@ async function handleLabel(evt) {
         workTags
           .map((workTag) => {
             for (let aliasName of Object.keys(synonymDict)) {
+              if (!synonymDict[aliasName]) {
+                console.log(aliasName, synonymDict[aliasName]);
+                throw new Error("Empty value in synonym dictionary");
+              }
               if (
-                aliasName.toUpperCase() === workTag.toUpperCase() ||
-                synonymDict[aliasName]
-                  .toUpperCase()
-                  .includes(workTag.toUpperCase()) ||
-                synonymDict[aliasName]
-                  .toUpperCase()
-                  .includes(workTag.split("(")[0].toUpperCase())
+                stringIncludes(aliasName, workTag) ||
+                arrayIncludes(synonymDict[aliasName], workTag) ||
+                arrayIncludes(synonymDict[aliasName], workTag.split("(")[0])
               )
                 return aliasName;
             }
@@ -860,11 +875,13 @@ async function handleSearch(evt) {
       if (work.title === "-----") continue;
       const bookmarkTags =
         bookmarks["bookmarkTags"][work["bookmarkData"]["id"]] || []; // empty if uncategorized
+      work.bookmarkTags = bookmarkTags;
       const workTags = work["tags"];
 
       const ifInclude = (keyword) => {
         // especially, R-18 tag is labelled in work
-        if (["R-18", "R18", "r18"].includes(keyword)) return work["xRestrict"];
+        if (["R-18", "r-18", "R18", "r18"].includes(keyword))
+          return work["xRestrict"];
 
         const index = searchStringArray.findIndex((kw) => kw.includes(keyword));
         const config = searchConfigs[index];
@@ -878,16 +895,12 @@ async function handleSearch(evt) {
           .map((key) => [key.split("(")[0], key]) // [char name, full key]
           .find(
             (el) =>
-              el[0].toUpperCase() === keyword.toUpperCase() || // input match char name
-              el[1].toUpperCase() === keyword.toUpperCase() || // input match full name
-              synonymDict[el[1]]
-                .toUpperCase()
-                .includes(keyword.toUpperCase()) || // input match any alias
+              stringIncludes(el[0], keyword) || // input match char name
+              stringIncludes(el[1], keyword) || // input match full name
+              arrayIncludes(synonymDict[el[1]], keyword) || // input match any alias
               (matchPattern === "fuzzy" &&
-                (el[1].toUpperCase().includes(keyword.toUpperCase()) ||
-                  synonymDict[el[1]]
-                    .toUpperCase()
-                    .some((alias) => alias.includes(keyword.toUpperCase()))))
+                (stringIncludes(el[1], keyword) ||
+                  arrayIncludes(synonymDict[el[1]], keyword, null, null, true)))
           );
         const keywordArray = [keyword];
         if (el) {
@@ -897,28 +910,18 @@ async function handleSearch(evt) {
         if (
           keywordArray.some(
             (kw) =>
-              (config[0] &&
-                work.title.toUpperCase().includes(kw.toUpperCase())) ||
-              (config[1] &&
-                work["userName"].toUpperCase().includes(kw.toUpperCase())) ||
-              (config[2] &&
-                workTags.toUpperCase().includes(kw.toUpperCase())) ||
-              (config[3] &&
-                bookmarkTags.toUpperCase().includes(kw.toUpperCase()))
+              (config[0] && stringIncludes(work.title, kw)) ||
+              (config[1] && stringIncludes(work["userName"], kw)) ||
+              (config[2] && arrayIncludes(workTags, kw)) ||
+              (config[3] && arrayIncludes(bookmarkTags, kw))
           )
         )
           return true;
         if (matchPattern === "exact") return false;
         return keywordArray.some(
           (kw) =>
-            (config[2] &&
-              workTags
-                .toUpperCase()
-                .some((tag) => tag.includes(kw.toUpperCase()))) ||
-            (config[3] &&
-              bookmarkTags
-                .toUpperCase()
-                .some((tag) => tag.includes(kw.toUpperCase())))
+            (config[2] && arrayIncludes(workTags, kw, null, null, true)) ||
+            (config[3] && arrayIncludes(bookmarkTags, kw, null, null, true))
         );
       };
 
@@ -1012,6 +1015,7 @@ function displayWork(work, resultsDiv, textColor) {
 }
 
 function galleryMode(evt, work) {
+  if (DEBUG) console.log(work);
   const modal = evt.composedPath().find((el) => el.id.includes("modal"));
   const scrollTop = modal.scrollTop;
   const dialog = evt
@@ -1293,6 +1297,7 @@ function shuffle(array) {
   return array;
 }
 
+const hold = false;
 function createModalElements() {
   // noinspection TypeScriptUMDGlobal
   const bootstrap_ = bootstrap;
@@ -1919,7 +1924,7 @@ function createModalElements() {
                 <div class="form-check d-inline-block align-self-center">
                   <input class="form-check-input" type="checkbox" value="" id="feature_tag_update_dict">
                   <label class="form-check-label" for="feature_tag_update_dict">
-                    更新词典 / Update Dict
+                    更新词典中已存在的标签名 / Update Existed Tag Name in Dict
                   </label>
                 </div>
               </div>
@@ -2066,7 +2071,7 @@ All works of tag ${tag || "All Works"} and type ${
       );
       setTimeout(() => {
         instance.hide();
-        if (window.runFlag && !DEBUG) window.location.reload();
+        if (window.runFlag && !hold) window.location.reload();
       }, 1000);
     })
   );
@@ -2143,7 +2148,7 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
             featureProgressBar.style.width = "100%";
             featurePrompt.innerText = "更新成功 / Update Successfully";
             setTimeout(() => {
-              if (!DEBUG) window.location.reload();
+              if (!hold) window.location.reload();
             }, 1000);
           }
         });
@@ -2228,7 +2233,7 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
           featurePrompt.innerText =
             "已删除，即将刷新页面 / Removed. The page is going to reload.";
           setTimeout(() => {
-            if (window.runFlag && !DEBUG) window.location.reload();
+            if (window.runFlag && !hold) window.location.reload();
           }, 1000);
         });
         display.appendChild(confirmButton);
@@ -2779,7 +2784,6 @@ async function injectElements() {
       let removeBookmarkContainerObserver;
       const editButtonObserver = new MutationObserver(
         async (MutationRecord) => {
-          if (DEBUG) console.log("on edit mode change");
           const { tag } = await updateWorkInfo();
           if (!MutationRecord[0].addedNodes.length) {
             // open edit mode
@@ -2915,7 +2919,7 @@ async function updateSuggestion(
     let candidates = [];
     if (searchDict) {
       let dictKeys = Object.keys(synonymDict).filter((el) =>
-        el.toUpperCase().includes(keyword.toUpperCase())
+        stringIncludes(el, keyword)
       );
       if (dictKeys.length)
         candidates = dictKeys.map((dictKey) => ({
@@ -2924,10 +2928,10 @@ async function updateSuggestion(
         }));
       if (!candidates.length) {
         dictKeys = Object.keys(synonymDict).filter((key) =>
-          synonymDict[key]
-            .toUpperCase()
-            .map((i) => i.split("(")[0])
-            .includes(keyword.split("(")[0].toUpperCase())
+          arrayIncludes(
+            synonymDict[key].map((i) => i.split("(")[0]),
+            keyword.split("(")[0]
+          )
         );
         if (dictKeys.length)
           candidates = dictKeys.map((dictKey) => ({
@@ -3119,7 +3123,9 @@ function setSynonymEventListener() {
       else value = value.join(" ");
       synonymString += key + "\n\t" + value + "\n\n";
     }
-    preview.innerText = synonymString;
+    preview.innerText = synonymString
+      ? synonymString
+      : "加载词典一栏中提供了样例词典，可用于导入\nA synonym dictionary sample is provided in Load Dict section for importing";
   }
   updatePreview(synonymDict);
 
@@ -3219,11 +3225,8 @@ function setSynonymEventListener() {
         if (filter === " ") return;
         const filteredKeys = Object.keys(synonymDict).filter(
           (key) =>
-            key.toUpperCase().includes(filter.toUpperCase()) ||
-            synonymDict[key]
-              .join("，")
-              .toUpperCase()
-              .includes(filter.toUpperCase())
+            stringIncludes(key, filter) ||
+            arrayIncludes(synonymDict[key], filter, null, null, true)
         );
         const newDict = {};
         for (let key of filteredKeys) {
