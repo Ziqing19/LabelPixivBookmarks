@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      5.8
+// @version      5.9
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -20,14 +20,9 @@
 
 // ==/UserScript==
 
-const latest = `♢ 新增批量删除失效收藏功能（在其他功能中）
-♢ Added functions to batch removing invalid works (in additional functions)
-♢ 新增迁移标签名功能（在其他功能中）
-♢ Added functions to rename a tag and migrate work tags (in additional functions)
-♢ 新增备份和导入收藏夹功能
-♢ Added functions to back up and import bookmarks
-♢ 新增标记AI作画至#AI标签的功能
-♢ Added options to label AI-generated works as #AI tag`;
+const version = 5.9;
+const latest = `♢ 新增显示用户标签功能（在脚本管理器菜单中）
+♢ Added functions to show user-labeled tags (in script manager menu)`;
 
 let uid,
   token,
@@ -37,6 +32,7 @@ let uid,
   synonymDict,
   pageInfo,
   theme,
+  showWorkTags,
   generator,
   // workType,
   feature,
@@ -1390,6 +1386,8 @@ function createModalElements() {
 </svg>`;
   const defaultPinConfig = backdropConfig ? svgPin : svgUnpin;
 
+  const showLatest = getValue("version") !== version ? "show" : "";
+
   // label
   const labelModal = document.createElement("div");
   labelModal.className = "modal fade";
@@ -1404,10 +1402,10 @@ function createModalElements() {
       </div>
       <form class="modal-body p-4" id="label_form">
         <div class="mb-4 mt-2">
-          <button type="button" class="mb-3 btn p-0" data-bs-toggle="collapse" data-bs-target="#latest_content">
+          <button type="button" class="mb-3 btn p-0" data-bs-toggle="collapse" data-bs-target="#latest_content" id="toggle_latest">
             &#9658; 最近更新 / Latest
           </button>
-          <div class="collapse px-3 fw-light" id="latest_content">
+          <div class="px-3 fw-light collapse ${showLatest}" id="latest_content">
             <div class="mb-3">
               <div>如果对以下配置有疑惑，请参考<a href="https://greasyfork.org/zh-CN/scripts/423823-pixiv%E6%94%B6%E8%97%8F%E5%A4%B9%E8%87%AA%E5%8A%A8%E6%A0%87%E7%AD%BE?locale_override=1" style="text-decoration: underline"
                   target="_blank" rel="noreferrer">文档</a>
@@ -1598,6 +1596,12 @@ function createModalElements() {
       labelPinButton.innerHTML = svgPin;
     }
   });
+  // latest
+  labelModal
+    .querySelector("button#toggle_latest")
+    .addEventListener("click", () => {
+      setValue("version", version);
+    });
 
   // search
   const searchModal = document.createElement("div");
@@ -2616,7 +2620,7 @@ async function fetchTokenPolyfill() {
   return userRes.slice(tokenPos, tokenEnd).split('"')[1];
 }
 
-async function updateWorkInfo() {
+async function updateWorkInfo(bookmarkTags) {
   const el = await waitForDom("section.sc-jgyytr-0.buukZm");
   let workInfo = {};
   for (let i = 0; i < 100; i++) {
@@ -2624,7 +2628,14 @@ async function updateWorkInfo() {
     if (Object.keys(workInfo).length) break;
     else await delay(200);
   }
-  if (DEBUG) console.log(workInfo);
+  if (bookmarkTags) {
+    [...el.querySelectorAll("li")].forEach((li, i) => {
+      workInfo["works"][i].associatedTags =
+        Object.values(li)[0].child.child["memoizedProps"].associatedTags;
+    });
+  }
+  const page = window.location.search.match(/p=(\d+)/)?.[1] || 1;
+  workInfo.page = parseInt(page);
   return workInfo;
 }
 
@@ -2757,7 +2768,8 @@ async function injectElements() {
 
     console.log("[Label Bookmarks] Try Injecting");
 
-    const workInfo = await updateWorkInfo();
+    const workInfo = await updateWorkInfo(true);
+    if (DEBUG) console.log(workInfo);
     if (!workInfo["works"]) {
       if (injectionObserver)
         injectionObserver.observe(pageBody, { childList: true });
@@ -2772,6 +2784,30 @@ async function injectElements() {
     setElementProperties();
     setSynonymEventListener();
     setAdvancedSearch();
+
+    // show user-labeled tags
+    const ul = await waitForDom("ul.sc-9y4be5-1");
+    async function updateAssociatedTagsCallback() {
+      const workInfo = await updateWorkInfo(true);
+      if (DEBUG) console.log("Page", workInfo.page, workInfo);
+      [...ul.querySelectorAll("[type='illust']")].forEach((img, i) => {
+        const tagsString = workInfo["works"][i].associatedTags
+          .map((i) => "#" + i)
+          .join(" ");
+        const tagDiv = document.createElement("div");
+        tagDiv.innerHTML = `<div class="my-1" style="font-size: 10px; color: rgb(61, 118, 153); pointer-events: none">
+          ${tagsString}
+        </div>`;
+        const pa = img.parentElement;
+        pa.insertBefore(tagDiv, pa.children[1]);
+      });
+    }
+    if (showWorkTags) {
+      await updateAssociatedTagsCallback();
+      new MutationObserver(updateAssociatedTagsCallback).observe(ul, {
+        childList: true,
+      });
+    }
 
     const editButtonContainer = await waitForDom(".sc-1dg0za1-6.fElfQf");
     if (editButtonContainer) {
@@ -3402,6 +3438,17 @@ function setAdvancedSearch() {
 }
 
 function registerMenu() {
+  showWorkTags = getValue("showWorkTags", "false") === "true";
+  if (showWorkTags)
+    GM_registerMenuCommand_("隐藏用户标签 / Hide User Tags", () => {
+      setValue("showWorkTags", "false");
+      window.location.reload();
+    });
+  else
+    GM_registerMenuCommand_("显示用户标签 / Show User Tags", () => {
+      setValue("showWorkTags", "true");
+      window.location.reload();
+    });
   generator = getValue("showGenerator", "false") === "true";
   if (generator)
     GM_registerMenuCommand_("关闭随机图片 / Disable Shuffled Images", () => {

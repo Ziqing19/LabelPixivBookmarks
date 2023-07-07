@@ -173,7 +173,23 @@
   - When you find some works got deleted/private, and you have a previous version of backup, Click on ***Lookup Invalid Works*** and choose the backup to make a comparison.
   - The lookup function relies on the order of your bookmarks. By indexing and locating its previous work id, the script would find the information of the invalid work.
 
+## Show User-label Tags
+
+- User-labeled tags can be displayed under the work image
+- Enable it in the script manager menu (where you enable/disable this script)
+
 ## FAQ
+
+- Some function fails?
+  - Except internal bugs, there are other reasons lead to the function failure
+    - Pixiv UI updates
+    - Browser and script manager compatibility
+  - Please open an issue at [Github](https://github.com/Ziqing19/LabelPixivBookmarks)提交issue
+  - Please note the following information:
+    - Browser and script manager used
+    - How to reproduce the bug
+    - Does it work before?
+    - You might get some error information in the console by pressing F12
 
 - The ***Label*** button cannot be found on the website
   - Firstly make sure that you are at the correct place, and try to **refresh** before the next step
@@ -374,7 +390,17 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
   - 当用户发现部分作品失效，并持有较早时期的收藏夹备份时，点击【查询失效作品信息】并提供较早的备份后，脚本将会对比并显示作品失效前的相关信息
   - 脚本依靠收藏夹中作品的顺序进行比较，在收藏顺序发生较大变化时可能无法正确展示结果
 
+## 显示用户标签
+
+- 该功能可以在作品图片下方展示用户标记的标签
+- 在脚本管理器的菜单中开启（即启用/禁用本脚本的位置）
+
 ## 常见问题
+
+- 遇到功能失效怎么办？
+  - 除脚本本身Bug外，Pixiv网页UI更新，浏览器适配性，脚本管理器适配性都有可能导致问题
+  - 请在[Github](https://github.com/Ziqing19/LabelPixivBookmarks)提交issue
+  - 提交时请备注使用的浏览器、脚本管理器、Bug触发条件、此前是否成功运行过，可以点击F12在控制台检查错误信息并截图
 
 - 网页上找不到“自动添加标签”按钮
   - 请确认当前是否在个人主页或收藏夹页，网址通常为https://www.pixiv.net/users/{用户UID}/bookmarks/artworks或https://www.pixiv.net/bookmark.php
@@ -392,7 +418,7 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
 - 电脑提示下载的词典文件有安全问题
   - 词典文件由浏览器生成，可能缺少一些我不太清楚的安全签名之类。因为是开源脚本，如果不放心可以检查一遍。如果能帮我解决掉这个问题更好了（
 
-- 我自己能编辑这个文件吗？
+- 我自己能编辑词典文件吗？
   - 词典用JSON格式储存，结构非常简单。如果不熟悉JSON格式，网上有很多在线编辑器可以使用，脚本只提供了最基本的增删改的功能
 
 - 使用该脚本是否会导致封号？
