@@ -10,11 +10,8 @@
 
 ## Latest
 
-- Added functions to rename a tag and migrate work tags (in additional functions)
-
-- Added functions to back up and import bookmarks
-
-- Added options to label AI-generated works as #AI tag
+- Added functions to regard author name as work tags (Label Page - Advanced)
+- Added functions to show user-labeled tags (in script manager menu)
 
 ## Intro
 
@@ -224,11 +221,8 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
 
 ## 最近更新
 
-- 新增迁移标签名功能（在其他功能中）
-
-- 新增备份和导入收藏夹功能
-
-- 新增标记AI作画至#AI标签的功能
+- 新增识别作者名用于自动标签功能（在添加标签-高级设置中）
+- 新增显示用户标签功能（在脚本管理器菜单中）
 
 ## 工作原理
 

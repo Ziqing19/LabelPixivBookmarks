@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      5.9
+// @version      5.10
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -20,8 +20,10 @@
 
 // ==/UserScript==
 
-const version = 5.9;
-const latest = `♢ 新增显示用户标签功能（在脚本管理器菜单中）
+const version = "5.10";
+const latest = `♢ 新增识别作者名用于自动标签功能（在添加标签-高级设置中）
+♢ Added functions to regard author name as work tags (Label Page - Advanced)
+♢ 新增显示用户标签功能（在脚本管理器菜单中）
 ♢ Added functions to show user-labeled tags (in script manager menu)`;
 
 let uid,
@@ -45,6 +47,10 @@ let unsafeWindow_ = unsafeWindow,
   GM_addStyle_ = GM_addStyle,
   GM_getResourceURL_ = GM_getResourceURL,
   GM_registerMenuCommand_ = GM_registerMenuCommand;
+
+function getCharacterName(tag) {
+  return tag.split("(")[0];
+}
 
 function getParodyName(tag) {
   return (tag.split("(")[1] || "").split(")")[0];
@@ -484,7 +490,7 @@ async function clearBookmarkTags(works) {
       prompt.innerText = work.alt + "\n" + work.associatedTags.join(" ");
 
       await updateBookmarkTags(
-        [work["bookmarkData"]["id"]],
+        [work.bookmarkId || work["bookmarkData"]["id"]],
         undefined,
         work.associatedTags
       );
@@ -597,6 +603,7 @@ async function handleLabel(evt) {
   const labelR18 = document.querySelector("#label_r18").value;
   const labelSafe = document.querySelector("#label_safe").value;
   const labelAI = document.querySelector("#label_ai").value;
+  const labelAuthor = document.querySelector("#label_author").value;
   const exclusion = document
     .querySelector("#label_exclusion")
     .value.split(/[\s\n]/)
@@ -656,6 +663,7 @@ async function handleLabel(evt) {
         continue;
       }
       const workTags = work["tags"];
+      if (labelAuthor) workTags.push(work["userName"]);
       let intersection = userTags.filter((userTag) => {
         // if work tags includes this user tag
         if (
@@ -677,22 +685,30 @@ async function handleLabel(evt) {
       });
       // if workTags match some alias, add it to the intersection (exact match, with or without parody name)
       intersection = intersection.concat(
-        workTags
-          .map((workTag) => {
-            for (let aliasName of Object.keys(synonymDict)) {
-              if (!synonymDict[aliasName]) {
-                console.log(aliasName, synonymDict[aliasName]);
-                throw new Error("Empty value in synonym dictionary");
-              }
-              if (
-                stringIncludes(aliasName, workTag) ||
-                arrayIncludes(synonymDict[aliasName], workTag) ||
-                arrayIncludes(synonymDict[aliasName], workTag.split("(")[0])
-              )
-                return aliasName;
-            }
-          })
-          .filter((i) => i)
+        Object.keys(synonymDict).filter((aliasName) => {
+          if (!synonymDict[aliasName]) {
+            console.log(aliasName, synonymDict[aliasName]);
+            throw new Error("Empty value in synonym dictionary");
+          }
+          if (
+            workTags.some(
+              (workTag) =>
+                arrayIncludes(
+                  synonymDict[aliasName].concat(aliasName),
+                  workTag,
+                  null,
+                  getParodyName
+                ) ||
+                arrayIncludes(
+                  synonymDict[aliasName].concat(aliasName),
+                  workTag,
+                  getCharacterName,
+                  getCharacterName
+                )
+            )
+          )
+            return true;
+        })
       );
       if (work["xRestrict"] && labelR18 === "true") intersection.push("R-18");
       if (!work["xRestrict"] && labelSafe === "true") intersection.push("SFW");
@@ -1315,6 +1331,9 @@ function createModalElements() {
   .label-button.text-lp-light:hover {
     color: rgb(245, 245, 245);
   }
+  .icon-invert {
+    filter: invert(1);
+  }
   .bg-dark button, .form-control, .form-control:focus, .form-select {
     color: inherit;
     background: inherit;
@@ -1387,6 +1406,20 @@ function createModalElements() {
   const defaultPinConfig = backdropConfig ? svgPin : svgUnpin;
 
   const showLatest = getValue("version") !== version ? "show" : "";
+
+  const lastBackupDictTime = getValue("lastBackupDict", "");
+  let lastBackupDict = "";
+  if (lastBackupDictTime) {
+    if (lang.includes("zh")) {
+      lastBackupDict = `<div style="font-size: 0.75rem; opacity: 0.4">最后备份：${new Date(
+        parseInt(lastBackupDictTime)
+      ).toLocaleDateString("zh-CN")}</div>`;
+    } else {
+      lastBackupDict = `<div style="font-size: 0.75rem; opacity: 0.4">Last Backup: ${new Date(
+        parseInt(lastBackupDictTime)
+      ).toLocaleDateString("en-US")}</div>`;
+    }
+  }
 
   // label
   const labelModal = document.createElement("div");
@@ -1467,11 +1500,12 @@ function createModalElements() {
                   <div class="mb-2">备选同义词 / Suggested Alias</div>
                   <div class="ms-3" id="label_suggestion"></div>
                 </div>
-                <div class="d-flex mb-3" id="synonym_buttons">
+                <div class="d-flex mb-2" id="synonym_buttons">
                   <button type="button" class="btn btn-outline-primary me-auto" title="保存至本地\nSave to Local Disk">导出词典 / Export Dict</button>
                   <button type="button" class="btn btn-outline-primary me-3" title="加载已有标签的同义词\nLoad Alias of Existing User Tag">加载标签 / Load Tag</button>
                   <button type="button" class="btn btn-outline-primary" title="保存结果至词典，同义词为空时将删除该项\nUpdate dict. User tag will be removed if alias is empty">更新标签 / Update Tag</button>
                 </div>
+                ${lastBackupDict}
               </div>
             </div>
             <div class="mb-4">
@@ -1550,6 +1584,17 @@ function createModalElements() {
               <select id="label_ai" class="form-select ${bgColor}">
                 <option value="true">标记 / Yes</option>
                 <option value="false">忽略 / No</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-light" for="label_author">
+                是否将作者名视为作品标签
+                <br />
+                Whether author name will be regarded as part of work tags
+              </label>
+              <select id="label_author" class="form-select ${bgColor}">
+                <option value="true">是 / Yes</option>
+                <option value="false">否 / No</option>
               </select>
             </div>
           </div>
@@ -2751,7 +2796,7 @@ async function injectElements() {
   removeTagButton.style.color = "rgba(0, 0, 0, 0.64)";
   removeTagButton.style.cursor = "pointer";
   removeTagButton.innerHTML = `
-    <div style="margin-right: 4px">
+    <div class="${theme ? "" : "icon-invert"}" style="margin-right: 4px">
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-trash" viewBox="0 0 16 16">
         <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
         <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
@@ -3093,6 +3138,10 @@ function setElementProperties() {
   labelAI.value = getValue("labelAI", "false");
   labelAI.onchange = () => setValue("labelAI", labelAI.value);
 
+  const labelAuthor = document.querySelector("#label_author");
+  labelAuthor.value = getValue("labelAuthor", "false");
+  labelAuthor.onchange = () => setValue("labelAuthor", labelAuthor.value);
+
   const exclusion = document.querySelector("#label_exclusion");
   exclusion.value = getValue("exclusion", "");
   exclusion.onchange = () => setValue("exclusion", exclusion.value);
@@ -3198,6 +3247,7 @@ function setSynonymEventListener() {
       `label_pixiv_bookmarks_synonym_dict_${new Date().toLocaleDateString()}.json`
     );
     a.click();
+    setValue("lastBackupDict", Date.now());
   });
   // load alias
   buttons[1].addEventListener("click", (evt) => {
