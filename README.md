@@ -10,7 +10,10 @@
 
 ## Latest
 
+- Added functions to replace the tag-selection dialog, displaying tags alphabetically (Function Page)
+
 - Added functions to regard author name as work tags (Label Page - Advanced)
+
 - Added functions to show user-labeled tags (in script manager menu)
 
 ## Intro
@@ -221,7 +224,10 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
 
 ## 最近更新
 
+- 新增替换标签选择对话框功能，将按照读音顺序展示标签（在其他功能中）
+
 - 新增识别作者名用于自动标签功能（在添加标签-高级设置中）
+
 - 新增显示用户标签功能（在脚本管理器菜单中）
 
 ## 工作原理

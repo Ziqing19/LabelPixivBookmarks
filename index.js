@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      5.10
+// @version      5.11
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -20,8 +20,10 @@
 
 // ==/UserScript==
 
-const version = "5.10";
-const latest = `♢ 新增识别作者名用于自动标签功能（在添加标签-高级设置中）
+const version = "5.11";
+const latest = `♢ 新增替换标签选择对话框功能，将按照读音顺序展示标签（在其他功能中）
+♢ Added functions to replace the tag-selection dialog, displaying tags alphabetically (Function Page)
+♢ 新增识别作者名用于自动标签功能（在添加标签-高级设置中）
 ♢ Added functions to regard author name as work tags (Label Page - Advanced)
 ♢ 新增显示用户标签功能（在脚本管理器菜单中）
 ♢ Added functions to show user-labeled tags (in script manager menu)`;
@@ -47,6 +49,18 @@ let unsafeWindow_ = unsafeWindow,
   GM_addStyle_ = GM_addStyle,
   GM_getResourceURL_ = GM_getResourceURL,
   GM_registerMenuCommand_ = GM_registerMenuCommand;
+
+// selectors
+const BANNER = ".jyUCdX";
+const THEME_CONTAINER = ".charcoal-token";
+const PAGE_BODY = ".jMEnyM"; // 自主页、收藏起下方
+const EDIT_BUTTON_CONTAINER = ".fElfQf"; // 管理收藏按钮
+const WORK_NUM = ".sc-1mr081w-0";
+const ADD_TAGS_MODAL_ENTRY = ".bbTNLI"; // 原生添加标签窗口中标签按钮
+const ALL_TAGS_BUTTON = ".jkGZFM"; // 标签切换窗口触发按钮
+const ALL_TAGS_CONTAINER = ".hpRxDJ"; // 标签按钮容器
+const ALL_TAGS_MODAL = ".ggMyQW"; // 原生标签切换窗口
+const ALL_TAGS_MODAL_CONTAINER = ".gOPhqx"; // 原生标签切换窗口中标签按钮容器
 
 function getCharacterName(tag) {
   return tag.split("(")[0];
@@ -2034,6 +2048,14 @@ function createModalElements() {
           </div>
           <div class="d-none" id="feature_bookmark_display"></div>
         </div>
+        <hr class="my-3" />
+        <div class="mb-4" id="feature_switch_tag_dialog">
+          <div class="fw-light mb-3">
+            替换标签选择对话框，原生对话框使用收藏数进行排序，替换后将依照读音、作品、角色等进行排序<br />
+            Replace the native tag-selection dialog, which uses the number of works to sort. New dialog will display the tags in alphabetical order, divided by characters and others.
+          </div>
+          <button class="btn btn-outline-primary">切换 / Switch</button>
+        </div>
         <div class="fw-bold text-center mt-4 d-none" id="feature_prompt"></div>
         <div class="progress mt-3 d-none" id="feature_modal_progress" style="min-height: 1rem">
           <div style="width: 0" class="progress-bar progress-bar-striped"
@@ -2590,6 +2612,95 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
         .join("\n\n");
     }
   });
+  // switch dialog
+  const switchDialogButton = featureModal
+    .querySelector("#feature_switch_tag_dialog")
+    .querySelector("button");
+  switchDialogButton.addEventListener("click", () => {
+    const tagSelectionDialog = getValue("tagSelectionDialog", "false");
+    if (tagSelectionDialog === "false") setValue("tagSelectionDialog", "true");
+    else setValue("tagSelectionDialog", "false");
+    window.location.reload();
+  });
+
+  // all tags selection modal
+  const c_ = ALL_TAGS_CONTAINER.slice(1);
+  const allTagsModal = document.createElement("div");
+  allTagsModal.className = "modal fade";
+  allTagsModal.id = "all_tags_modal";
+  allTagsModal.tabIndex = -1;
+  allTagsModal.innerHTML = `
+    <div class="modal-dialog modal-xl ${bgColor} ${textColor}" style="pointer-events: initial">
+      <div class="modal-header">
+        <h5 class="modal-title">收藏标签一栏 / All Bookmark Tags</h5>
+        <button class="btn btn-close btn-close-empty ms-auto" data-bs-dismiss="modal">${svgClose}</button>
+      </div>
+      <div class="modal-body p-4"><div class="${c_} mb-4"></div><div class="hpRxDJ"></div></div>
+    </div>`;
+  const parodyContainer = allTagsModal.querySelector(ALL_TAGS_CONTAINER);
+  const characterContainer = [
+    ...allTagsModal.querySelectorAll(ALL_TAGS_CONTAINER),
+  ][1];
+  userTags.forEach((tag) => {
+    const d = document.createElement("div");
+    d.className = "sc-1jxp5wn-2 cdeTmC";
+    d.innerHTML = `
+        <div class="sc-d98f2c-0 sc-1ij5ui8-1 RICfj sc-1xl36rp-0 iyuGOa" role="button">
+          <div class="sc-1xl36rp-1 iUPWKW">
+            <div class="sc-1xl36rp-2 bIDszS">
+              <div title="#${tag}" class="sc-1utla24-0 bTtACY">#${tag}</div>
+            </div>
+          </div>
+        </div>`;
+    d.addEventListener("click", async () => {
+      try {
+        const c0 = document.querySelector(ALL_TAGS_MODAL_CONTAINER);
+        const c1 = c0.lastElementChild;
+        let lastScrollTop = -1;
+        let targetDiv;
+        let i = 0;
+        while (
+          c1.scrollTop !== lastScrollTop &&
+          !targetDiv &&
+          i < userTags.length
+        ) {
+          targetDiv = [...c1.firstElementChild.children].find((el) =>
+            el.textContent.includes(tag)
+          );
+          if (!targetDiv) {
+            c1.scrollTop = parseInt(
+              c1.firstElementChild.lastElementChild.style.top
+            );
+            if ("onscrollend" in window)
+              await new Promise((r) =>
+                c1.addEventListener("scrollend", () => r(), { once: true })
+              );
+            else {
+              let j = 0,
+                lastText = c1.firstElementChild.lastElementChild.textContent;
+              while (
+                j < 10 &&
+                lastText === c1.firstElementChild.lastElementChild.textContent
+              ) {
+                console.log("wait");
+                await new Promise((r) => setTimeout(r, 100));
+                j++;
+              }
+            }
+          }
+          i++;
+        }
+        if (targetDiv) {
+          targetDiv.firstElementChild.click();
+          allTagsModal.querySelector("button.btn-close").click();
+        }
+      } catch (err) {
+        window.alert(`${err.name}: ${err.message}\n${err.stack}`);
+      }
+    });
+    if (tag.includes("(")) characterContainer.appendChild(d);
+    else parodyContainer.appendChild(d);
+  });
 
   const progressModal = document.createElement("div");
   progressModal.className = "modal fade";
@@ -2623,6 +2734,7 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
   body.appendChild(generatorModal);
   body.appendChild(featureModal);
   body.appendChild(progressModal);
+  body.appendChild(allTagsModal);
 }
 
 async function fetchUserTags() {
@@ -2693,9 +2805,9 @@ async function initializeVariables() {
   }
 
   try {
-    pageInfo = Object.values(document.querySelector(".sc-x1dm5r-0"))[0][
+    pageInfo = Object.values(document.querySelector(BANNER))[0]["return"][
       "return"
-    ]["return"]["memoizedProps"];
+    ]["memoizedProps"];
     if (DEBUG) console.log(pageInfo);
     uid = pageInfo["client"]["userId"];
     token = pageInfo["client"]["token"];
@@ -2711,7 +2823,7 @@ async function initializeVariables() {
   // workType = Object.values(document.querySelector(".sc-1x9383j-0"))[0].child["memoizedProps"]["workType"];
 
   // switch between default and dark theme
-  const themeDiv = document.querySelector(".charcoal-token");
+  const themeDiv = document.querySelector(THEME_CONTAINER);
   theme = themeDiv.getAttribute("data-theme") === "default";
   new MutationObserver(() => {
     theme = themeDiv.getAttribute("data-theme") === "default";
@@ -2759,7 +2871,7 @@ async function waitForDom(selector) {
 
 async function injectElements() {
   const textColor = theme ? "text-lp-dark" : "text-lp-light";
-  const pageBody = document.querySelector(".sc-12rgki1-0.jMEnyM");
+  const pageBody = document.querySelector(PAGE_BODY);
   const root = document.querySelector("nav");
   root.classList.add("d-flex");
   const buttonContainer = document.createElement("span");
@@ -2854,7 +2966,7 @@ async function injectElements() {
       });
     }
 
-    const editButtonContainer = await waitForDom(".sc-1dg0za1-6.fElfQf");
+    const editButtonContainer = await waitForDom(EDIT_BUTTON_CONTAINER);
     if (editButtonContainer) {
       editButtonContainer.style.justifyContent = "initial";
       editButtonContainer.firstElementChild.style.marginRight = "auto";
@@ -2905,7 +3017,7 @@ async function injectElements() {
     }
 
     let lastTag = workInfo.tag;
-    const tagsContainer = await waitForDom(".sc-1jxp5wn-1");
+    const tagsContainer = await waitForDom(ALL_TAGS_CONTAINER);
     new MutationObserver(async () => {
       const workInfo = await updateWorkInfo();
       if (lastTag !== workInfo.tag) {
@@ -2937,11 +3049,66 @@ async function injectElements() {
       childList: true,
     });
 
-    const toUncategorized = document.querySelector(".sc-1mr081w-0");
+    const toUncategorized = document.querySelector(WORK_NUM);
     if (toUncategorized) {
       toUncategorized.style.cursor = "pointer";
       toUncategorized.onclick = () =>
         (window.location.href = `https://www.pixiv.net/users/${uid}/bookmarks/artworks/未分類`);
+    }
+
+    const tagSelectionDialog =
+      getValue("tagSelectionDialog", "false") === "true";
+    if (tagSelectionDialog) {
+      // sort tags in popup
+      new MutationObserver((MutationRecord) => {
+        if (MutationRecord[0].addedNodes[0]) {
+          const root = MutationRecord[0].addedNodes[0];
+          const ul = root.querySelector("ul");
+          if (ul) {
+            [...ul.children]
+              .sort((a, b) => {
+                let iA = userTags.indexOf(a.textContent.slice(1));
+                let iB = userTags.indexOf(b.textContent.slice(1));
+                if (a.querySelector(ADD_TAGS_MODAL_ENTRY)) iA = -1;
+                if (b.querySelector(ADD_TAGS_MODAL_ENTRY)) iB = -1;
+                return iA - iB;
+              })
+              .forEach((node) => ul.appendChild(node));
+          }
+        }
+      }).observe(document.body, {
+        childList: true,
+        subtree: false,
+        attributes: false,
+      });
+
+      // all tags selection control
+      waitForDom(ALL_TAGS_BUTTON).then(
+        (button) => (button.style.display = "none")
+      );
+      addStyle(".ggMyQW { z-index: -1; }");
+      const allTagsButton = document.createElement("div");
+      allTagsButton.setAttribute("data-bs-toggle", "modal");
+      allTagsButton.setAttribute("data-bs-target", "#all_tags_modal");
+      allTagsButton.classList.add(ALL_TAGS_BUTTON.slice(1));
+      allTagsButton.role = "button";
+      allTagsButton.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-asterisk" viewBox="0 0 16 16">
+      <path d="M8 0a1 1 0 0 1 1 1v5.268l4.562-2.634a1 1 0 1 1 1 1.732L10 8l4.562 2.634a1 1 0 1 1-1 1.732L9 9.732V15a1 1 0 1 1-2 0V9.732l-4.562 2.634a1 1 0 1 1-1-1.732L6 8 1.438 5.366a1 1 0 0 1 1-1.732L7 6.268V1a1 1 0 0 1 1-1z"/>
+    </svg>`;
+      const allTagsContainer = await waitForDom(ALL_TAGS_CONTAINER);
+      allTagsContainer.appendChild(allTagsButton);
+      allTagsButton.addEventListener("click", () => {
+        document.querySelector(ALL_TAGS_BUTTON)?.click();
+        const modal = document.querySelector("#all_tags_modal");
+        modal.addEventListener("shown.bs.modal", () => modal.focus());
+        modal.addEventListener("hidden.bs.modal", () => {
+          document
+            .querySelector(ALL_TAGS_MODAL)
+            ?.querySelector("button")
+            .click();
+        });
+      });
     }
 
     console.log("[Label Bookmarks] Injected");
@@ -2951,7 +3118,7 @@ async function injectElements() {
       () => {
         if (window.location.href.match(/\/users\/\d+\/bookmarks\/artworks/))
           delay(1000)
-            .then(() => waitForDom(".sc-1jxp5wn-1"))
+            .then(() => waitForDom(ALL_TAGS_CONTAINER))
             .then(createModalElements)
             .then(injectElements);
       },
