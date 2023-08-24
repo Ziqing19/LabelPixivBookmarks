@@ -23,8 +23,8 @@
 const version = "5.11";
 const latest = `♢ 新增替换标签选择对话框功能，将按照读音顺序展示标签（在其他功能中）
 ♢ Added functions to replace the tag-selection dialog, displaying tags alphabetically (Function Page)
-♢ 新增识别作者名用于自动标签功能（在添加标签-高级设置中）
-♢ Added functions to regard author name as work tags (Label Page - Advanced)
+♢ 新增识别作者名与uid用于自动标签功能（在添加标签-高级设置中）
+♢ Added functions to regard author name and uid as work tags (Label Page - Advanced)
 ♢ 新增显示用户标签功能（在脚本管理器菜单中）
 ♢ Added functions to show user-labeled tags (in script manager menu)`;
 
@@ -677,7 +677,7 @@ async function handleLabel(evt) {
         continue;
       }
       const workTags = work["tags"];
-      if (labelAuthor) workTags.push(work["userName"]);
+      if (labelAuthor) workTags.push(work["userName"], work["userId"]);
       let intersection = userTags.filter((userTag) => {
         // if work tags includes this user tag
         if (
@@ -1602,9 +1602,9 @@ function createModalElements() {
             </div>
             <div class="mb-3">
               <label class="form-label fw-light" for="label_author">
-                是否将作者名视为作品标签
+                是否将作者名与uid视为作品标签
                 <br />
-                Whether author name will be regarded as part of work tags
+                Whether author name and uid will be regarded as part of work tags
               </label>
               <select id="label_author" class="form-select ${bgColor}">
                 <option value="true">是 / Yes</option>
@@ -3083,9 +3083,8 @@ async function injectElements() {
       });
 
       // all tags selection control
-      waitForDom(ALL_TAGS_BUTTON).then(
-        (button) => (button.style.display = "none")
-      );
+      const prevAllTagsButton = await waitForDom(ALL_TAGS_BUTTON);
+      prevAllTagsButton.style.display = "none";
       addStyle(".ggMyQW { z-index: -1; }");
       const allTagsButton = document.createElement("div");
       allTagsButton.setAttribute("data-bs-toggle", "modal");
