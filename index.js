@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      5.11
+// @version      5.12
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -20,7 +20,7 @@
 
 // ==/UserScript==
 
-const version = "5.11";
+const version = "5.12";
 const latest = `♢ 新增替换标签选择对话框功能，将按照读音顺序展示标签（在其他功能中）
 ♢ Added functions to replace the tag-selection dialog, displaying tags alphabetically (Function Page)
 ♢ 新增识别作者名与uid用于自动标签功能（在添加标签-高级设置中）
@@ -51,7 +51,7 @@ let unsafeWindow_ = unsafeWindow,
   GM_registerMenuCommand_ = GM_registerMenuCommand;
 
 // selectors
-const BANNER = ".jyUCdX";
+const BANNER = ".sc-x1dm5r-0";
 const THEME_CONTAINER = ".charcoal-token";
 const PAGE_BODY = ".jMEnyM"; // 自主页、收藏起下方
 const EDIT_BUTTON_CONTAINER = ".fElfQf"; // 管理收藏按钮
@@ -2802,6 +2802,8 @@ async function initializeVariables() {
     uid = dataLayer["user_id"];
     lang = dataLayer["lang"];
     token = await fetchTokenPolyfill();
+    pageInfo.userId = window.location.href.match(/users\/(\d+)/)?.[1];
+    pageInfo.client = { userId: uid, lang, token };
   }
 
   try {
