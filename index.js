@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      5.12
+// @version      5.13
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -20,8 +20,10 @@
 
 // ==/UserScript==
 
-const version = "5.12";
-const latest = `♢ 新增替换标签选择对话框功能，将按照读音顺序展示标签（在其他功能中）
+const version = "5.13";
+const latest = `♢ 新增是否严格匹配作品标签与用户标签的角色名与作品名选项（默认是，在添加标签-高级设置中）
+♢ Added options whether work tag and user tag need to strictly match their character name and work tilte (Yes by default, Label Page - Advanced)
+♢ 新增替换标签选择对话框功能，将按照读音顺序展示标签（在其他功能中）
 ♢ Added functions to replace the tag-selection dialog, displaying tags alphabetically (Function Page)
 ♢ 新增识别作者名与uid用于自动标签功能（在添加标签-高级设置中）
 ♢ Added functions to regard author name and uid as work tags (Label Page - Advanced)
@@ -66,7 +68,7 @@ function getCharacterName(tag) {
   return tag.split("(")[0];
 }
 
-function getParodyName(tag) {
+function getWorkTitle(tag) {
   return (tag.split("(")[1] || "").split(")")[0];
 }
 
@@ -618,6 +620,7 @@ async function handleLabel(evt) {
   const labelSafe = document.querySelector("#label_safe").value;
   const labelAI = document.querySelector("#label_ai").value;
   const labelAuthor = document.querySelector("#label_author").value;
+  const labelStrict = document.querySelector("#label_strict").value;
   const exclusion = document
     .querySelector("#label_exclusion")
     .value.split(/[\s\n]/)
@@ -678,26 +681,32 @@ async function handleLabel(evt) {
       }
       const workTags = work["tags"];
       if (labelAuthor) workTags.push(work["userName"], work["userId"]);
-      let intersection = userTags.filter((userTag) => {
-        // if work tags includes this user tag
-        if (
-          arrayIncludes(workTags, userTag) || // full tag
-          arrayIncludes(workTags, userTag.split("(")[0]) || // char name
-          arrayIncludes(workTags, userTag, getParodyName) // parody name
-        )
-          return true;
-        // if work tags match a user alias (exact match)
-        return (
-          synonymDict[userTag] &&
-          synonymDict[userTag].find(
-            (alias) =>
-              arrayIncludes(workTags, alias) ||
-              arrayIncludes(workTags, alias.split("(")[0]) ||
-              arrayIncludes(workTags, alias, getParodyName) // parody name
+      let intersection = [...userTags, ...Object.keys(synonymDict)].filter(
+        (userTag) => {
+          // if work tags includes this user tag
+          if (
+            arrayIncludes(workTags, userTag) || // full tag
+            arrayIncludes(workTags, userTag, getWorkTitle) || // work title
+            (arrayIncludes(workTags, userTag, null, getCharacterName) && // char name
+              (!labelStrict ||
+                arrayIncludes(workTags, userTag, null, getWorkTitle))) // not strict or includes work title
           )
-        );
-      });
-      // if workTags match some alias, add it to the intersection (exact match, with or without parody name)
+            return true;
+          // if work tags match a user alias (exact match)
+          return (
+            synonymDict[userTag] &&
+            synonymDict[userTag].find(
+              (alias) =>
+                arrayIncludes(workTags, alias) ||
+                arrayIncludes(workTags, alias, getWorkTitle) || // work title
+                (arrayIncludes(workTags, alias, null, getCharacterName) &&
+                  (!labelStrict ||
+                    arrayIncludes(workTags, alias, null, getWorkTitle)))
+            )
+          );
+        }
+      );
+      // if workTags match some alias, add it to the intersection (exact match, with or without work title)
       intersection = intersection.concat(
         Object.keys(synonymDict).filter((aliasName) => {
           if (!synonymDict[aliasName]) {
@@ -711,12 +720,12 @@ async function handleLabel(evt) {
                   synonymDict[aliasName].concat(aliasName),
                   workTag,
                   null,
-                  getParodyName
+                  getWorkTitle
                 ) ||
                 arrayIncludes(
                   synonymDict[aliasName].concat(aliasName),
                   workTag,
-                  getCharacterName,
+                  null,
                   getCharacterName
                 )
             )
@@ -1607,6 +1616,17 @@ function createModalElements() {
                 Whether author name and uid will be regarded as part of work tags
               </label>
               <select id="label_author" class="form-select ${bgColor}">
+                <option value="true">是 / Yes</option>
+                <option value="false">否 / No</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-light" for="label_strict">
+                是否作品标签与用户标签需要严格匹配（角色名与作品名）
+                <br />
+                Whether the work tag and user tag need to be strictly match (both character name and work title)
+              </label>
+              <select id="label_strict" class="form-select ${bgColor}">
                 <option value="true">是 / Yes</option>
                 <option value="false">否 / No</option>
               </select>
@@ -3313,6 +3333,10 @@ function setElementProperties() {
   const exclusion = document.querySelector("#label_exclusion");
   exclusion.value = getValue("exclusion", "");
   exclusion.onchange = () => setValue("exclusion", exclusion.value);
+
+  const labelStrict = document.querySelector("#label_strict");
+  labelStrict.value = getValue("labelStrict", "true");
+  labelStrict.onchange = () => setValue("labelStrict", labelStrict.value);
 
   // search bookmark form
   const searchForm = document.querySelector("#search_form");

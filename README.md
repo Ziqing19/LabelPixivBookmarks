@@ -127,6 +127,14 @@
   - By default, the script will not label AI-generated works
   - Set the config as *Yes* to distinguish them
 
+- Whether author name and uid will be regarded as part of work tags
+  - Enable users to use author name and uid as the alias name of synonym dict
+
+- Whether the work tag and user tag need to be strictly match (both character name and work title)
+  - Eg: work A, tagged as #Asuka #EVA; work B, tagged as #Asuka; work C, tagged as #Asuka(EVA). And you have #Asuka(EVA) in your user tags
+  - When set to Yes, only work A and C will be tagged as #Asuka(EVA)
+  - When set to No, all of them will be tagged as #Asuka(EVA)
+
 ## Remove All Tags from Selected Works
 
 - The script can help you remove all tags from selected artworks easily
@@ -338,6 +346,14 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
 - 是否为AI生成的作品标记#AI标签
   - 默认不会标记
   - 如果需要该功能请选择*标记*
+
+- 是否将作者名与uid视为作品标签
+  - 允许用户将作者名与uid作为同义词词典的别名 
+
+- 是否作品标签与用户标签需要严格匹配（角色名与作品名）
+  - 例：作品A，标签为#Asuka，#EVA；作品B，标签为#Asuka；作品C，标签为#Asuka(EVA)。此时你的用户词典中含有#Asuka(EVA)
+  - 当设置为是时，仅有作品AC会被标记为#Asuka(EVA)
+  - 当设置为否时，所有作品都会被标记为#Asuka(EVA)
 
 ## 清除作品的所有标签
 
