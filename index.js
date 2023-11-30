@@ -746,10 +746,13 @@ async function handleLabel(evt) {
 
       if (!intersection.length && !prevTags.length) {
         if (addFirst === "true") {
-          const first = workTags.find((tag) => !exclusion.includes(tag));
+          const first = workTags
+					.filter(tag => !exclusion.includes(tag) && tag.length <= 20 && !tag.includes("入り"))
+					.filter(tag => !Object.values(synonymDict).flat().some(synonym => workTags.includes(synonym)))
+					.slice(0, 1); // Can be changed if you want to add more than 1 tag from the same work
           if (first) {
-            intersection.push(first);
-            userTags.push(first);
+            intersection.push(...first);
+            userTags.push(...first);
           }
         }
       }
