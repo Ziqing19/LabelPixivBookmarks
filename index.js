@@ -271,13 +271,12 @@ async function fetchAllBookmarksByTag(
   let total = 65535,
     offset = 0,
     totalWorks = [];
-	  const batchFetchSize = 100
   do {
     if (!window.runFlag) break;
 		const promises = [];
-		for (let i = 0; i < batchFetchSize && offset < total; i++) {
+		for (let i = 0; i < bookmarkBatchSize && offset < total; i++) {
 			promises.push(fetchBookmarks(uid, tag, offset, publicationType));
-			offset += batchFetchSize;
+			offset += bookmarkBatchSize;
 		}
 		const batchResults = await Promise.all(promises);
     for (const bookmarks of batchResults) {
@@ -295,7 +294,6 @@ async function fetchAllBookmarksByTag(
       const ratio = ((offset / total) * max).toFixed(2);
       progressBar.style.width = ratio + "%";
     }
-		await delay(500);
   } while (offset < total);
   if (progressBar) {
     progressBar.innerText = total + "/" + total;
@@ -366,46 +364,59 @@ async function updateBookmarkTags(
     throw new TypeError("BookmarkIds is undefined or empty array");
   if (!Array.isArray(addTags) && !Array.isArray(removeTags))
     throw new TypeError("Either addTags or removeTags should be valid array");
+	
+	const batchPromises = [];
   async function run(ids) {
     if (addTags && addTags.length) {
-      await fetch("/ajax/illusts/bookmarks/add_tags", {
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json; charset=utf-8",
-          "x-csrf-token": token,
-        },
-        body: JSON.stringify({ tags: addTags, bookmarkIds: ids }),
-        method: "POST",
-      });
-      await delay(500);
-    }
+			const addTagsChunks = chunkArray(addTags, bookmarkBatchSize);
+			for (const tagsChunk of addTagsChunks) {
+				requests.push(fetchRequest("/ajax/illusts/bookmarks/add_tags", {
+					tags: tagsChunk,
+					bookmarkIds: ids,
+				}));
+			}
+		}
     if (removeTags && removeTags.length) {
-      await fetch("/ajax/illusts/bookmarks/remove_tags", {
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json; charset=utf-8",
-          "x-csrf-token": token,
-        },
-        body: JSON.stringify({ removeTags, bookmarkIds: ids }),
-        method: "POST",
-      });
-      await delay(500);
-    }
-  }
-  const num = Math.ceil(bookmarkIds.length / bookmarkBatchSize);
-  for (let i of [...Array(num).keys()]) {
-    if (!window.runFlag) break;
-    const ids = bookmarkIds.filter(
-      (_, j) => j >= i * bookmarkBatchSize && j < (i + 1) * bookmarkBatchSize
-    );
-    await run(ids);
-    if (progressBar) {
-      const offset = i * bookmarkBatchSize;
-      progressBar.innerText = offset + "/" + bookmarkIds.length;
-      const ratio = ((offset / bookmarkIds.length) * 100).toFixed(2);
-      progressBar.style.width = ratio + "%";
-    }
-  }
+			const removeTagsChunks = chunkArray(removeTags, bookmarkBatchSize);
+			for (const tagsChunk of removeTagsChunks) {
+				requests.push(fetchRequest("/ajax/illusts/bookmarks/remove_tags", {
+					removeTags: tagsChunk,
+					bookmarkIds: ids,
+				}));
+			}
+		}
+		if (requests.length > 1) {
+			await Promise.all(requests);
+		}
+	}
+	async function fetchRequest(url, data) {
+		const response = await fetch(url, {
+			method: "POST",
+			headers: {
+				accept: "application/json",
+				"content-type": "application/json; charset=utf-8",
+				"x-csrf-token": token,
+			},
+			body: JSON.stringify(data),
+		});
+		return response;
+	}
+	function chunkArray(arr, chunkSize) {
+		return Array.from({ length: Math.ceil(arr.length / chunkSize) }, (_, index) =>
+		arr.slice(index * chunkSize, index * chunkSize + chunkSize)
+		);
+	}
+	for (const ids of chunkArray(bookmarkIds, bookmarkBatchSize)) {
+		if (!window.runFlag) break;
+		await run(ids);
+		await delay(500)
+	}
+	const chunkPromises = chunkArray(bookmarkIds, bookmarkBatchSize).map(async (idsChunk) => {
+		if (!window.runFlag) return;
+		await runBatch(idsChunk);
+	});
+	await Promise.all(chunkPromises);
+		
   if (progressBar) {
     progressBar.innerText = bookmarkIds.length + "/" + bookmarkIds.length;
     progressBar.style.width = "100%";
