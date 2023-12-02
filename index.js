@@ -271,9 +271,16 @@ async function fetchAllBookmarksByTag(
   let total = 65535,
     offset = 0,
     totalWorks = [];
+	  const batchFetchSize = 100
   do {
     if (!window.runFlag) break;
-    const bookmarks = await fetchBookmarks(uid, tag, offset, publicationType);
+		const promises = [];
+		for (let i = 0; i < batchFetchSize && offset < total; i++) {
+			promises.push(fetchBookmarks(uid, tag, offset, publicationType));
+			offset += batchFetchSize;
+		}
+		const batchResults = await Promise.all(promises);
+    for (const bookmarks of batchResults) {
     total = bookmarks.total;
     const works = bookmarks["works"];
     works.forEach(
@@ -282,12 +289,13 @@ async function fetchAllBookmarksByTag(
           bookmarks["bookmarkTags"][w["bookmarkData"]["id"]] || [])
     );
     totalWorks.push(...works);
-    offset = totalWorks.length;
+		}
     if (progressBar) {
       progressBar.innerText = offset + "/" + total;
       const ratio = ((offset / total) * max).toFixed(2);
       progressBar.style.width = ratio + "%";
     }
+		await delay(500);
   } while (offset < total);
   if (progressBar) {
     progressBar.innerText = total + "/" + total;
