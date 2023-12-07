@@ -271,30 +271,38 @@ async function fetchAllBookmarksByTag(
   let total = 65535,
     offset = 0,
     totalWorks = [];
-  do {
-    if (!window.runFlag) break;
-		const promises = [];
-		for (let i = 0; i < bookmarkBatchSize && offset < total; i++) {
-			promises.push(fetchBookmarks(uid, tag, offset, publicationType));
-			offset += bookmarkBatchSize;
-		}
-		const batchResults = await Promise.all(promises);
-    for (const bookmarks of batchResults) {
-    total = bookmarks.total;
-    const works = bookmarks["works"];
-    works.forEach(
-      (w) =>
-        (w.associatedTags =
-          bookmarks["bookmarkTags"][w["bookmarkData"]["id"]] || [])
-    );
-    totalWorks.push(...works);
-		}
+
+  const batchSize = 10;
+
+  while (offset < total && window.runFlag) {
+    const fetchPromises = [];
+    const bookmarksBatch = [];
+
+    for (let i = 0; i < batchSize && offset < total; i++) {
+      bookmarksBatch.push(fetchBookmarks(uid, tag, offset, publicationType));
+      offset += max;
+    }
+    const batchResults = await Promise.all(bookmarksBatch);
+		
+    for (const result of batchResults) {
+      total = result.total;
+      for (const work of result.works) {
+        const fetchedWork = {
+          ...work,
+          associatedTags: result.bookmarkTags[work.bookmarkData.id] || [],
+        };
+        totalWorks.push(fetchedWork);
+        fetchPromises.push(fetchedWork);
+      }
+    }
     if (progressBar) {
-      progressBar.innerText = offset + "/" + total;
-      const ratio = ((offset / total) * max).toFixed(2);
+      progressBar.innerText = totalWorks.length + "/" + total;
+      const ratio = ((totalWorks.length / total) * max).toFixed(2);
       progressBar.style.width = ratio + "%";
     }
-  } while (offset < total);
+    await Promise.all(fetchPromises);
+		await delay(500);
+  }
   if (progressBar) {
     progressBar.innerText = total + "/" + total;
     progressBar.style.width = "100%";
