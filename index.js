@@ -366,7 +366,10 @@ async function updateBookmarkTags(
     throw new TypeError("Either addTags or removeTags should be valid array");
 	
 	const batchPromises = [];
-  async function run(ids) {
+
+	async function run(ids) {
+		const requests = [];
+		
     if (addTags && addTags.length) {
 			const addTagsChunks = chunkArray(addTags, bookmarkBatchSize);
 			for (const tagsChunk of addTagsChunks) {
@@ -411,12 +414,6 @@ async function updateBookmarkTags(
 		await run(ids);
 		await delay(500)
 	}
-	const chunkPromises = chunkArray(bookmarkIds, bookmarkBatchSize).map(async (idsChunk) => {
-		if (!window.runFlag) return;
-		await runBatch(idsChunk);
-	});
-	await Promise.all(chunkPromises);
-		
   if (progressBar) {
     progressBar.innerText = bookmarkIds.length + "/" + bookmarkIds.length;
     progressBar.style.width = "100%";
