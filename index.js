@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      5.13
+// @version      5.14
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -20,9 +20,11 @@
 
 // ==/UserScript==
 
-const version = "5.13";
-const latest = `♢ 新增是否严格匹配作品标签与用户标签的角色名与作品名选项（默认是，在添加标签-高级设置中）
-♢ Added options whether work tag and user tag need to strictly match their character name and work tilte (Yes by default, Label Page - Advanced)
+const version = "5.14";
+const latest = `♢ 新增加速模式选项，通过移除请求间的等待时间加速脚本运行（在其他功能中）
+♢ Added Turbo Mode that removes most delay time between requests to increase the speed of the script (Function Page)
+♢ 新增是否严格匹配作品标签与用户标签的角色名与作品名选项（默认是，在添加标签-高级设置中）
+♢ Added options whether work tag and user tag need to strictly match their character name and work title (Yes by default, Label Page - Advanced)
 ♢ 新增替换标签选择对话框功能，将按照读音顺序展示标签（在其他功能中）
 ♢ Added functions to replace the tag-selection dialog, displaying tags alphabetically (Function Page)
 ♢ 新增识别作者名与uid用于自动标签功能（在添加标签-高级设置中）
@@ -42,6 +44,7 @@ let uid,
   generator,
   // workType,
   feature,
+  turboMode,
   cachedBookmarks = {},
   DEBUG;
 // noinspection TypeScriptUMDGlobal,JSUnresolvedVariable
@@ -112,6 +115,12 @@ function isEqualObject(obj1, obj2) {
 
 function delay(ms) {
   return new Promise((res) => setTimeout(res, ms));
+}
+
+function chunkArray(arr, chunkSize) {
+  return Array.from({ length: Math.ceil(arr.length / chunkSize) }, (_, index) =>
+    arr.slice(index * chunkSize, index * chunkSize + chunkSize)
+  );
 }
 
 function getValue(name, defaultValue) {
@@ -252,7 +261,7 @@ async function fetchBookmarks(uid, tagToQuery, offset, publicationType) {
       `/illusts/bookmarks?tag=${tagToQuery}` +
       `&offset=${offset}&limit=${bookmarkBatchSize}&rest=${publicationType}`
   );
-  await delay(500);
+  if (!turboMode) await delay(500);
   const bookmarksRes = await bookmarksRaw.json();
   if (!bookmarksRaw.ok || bookmarksRes.error === true) {
     return alert(
@@ -272,36 +281,47 @@ async function fetchAllBookmarksByTag(
     offset = 0,
     totalWorks = [];
 
-  const batchSize = 10;
-
   while (offset < total && window.runFlag) {
-    const fetchPromises = [];
-    const bookmarksBatch = [];
-
-    for (let i = 0; i < batchSize && offset < total; i++) {
-      bookmarksBatch.push(fetchBookmarks(uid, tag, offset, publicationType));
-      offset += max;
-    }
-    const batchResults = await Promise.all(bookmarksBatch);
-		
-    for (const result of batchResults) {
-      total = result.total;
-      for (const work of result.works) {
-        const fetchedWork = {
-          ...work,
-          associatedTags: result.bookmarkTags[work.bookmarkData.id] || [],
-        };
-        totalWorks.push(fetchedWork);
-        fetchPromises.push(fetchedWork);
+    if (turboMode) {
+      const fetchPromises = [];
+      const bookmarksBatch = [];
+      const batchSize = 10;
+      for (let i = 0; i < batchSize && offset < total; i++) {
+        bookmarksBatch.push(fetchBookmarks(uid, tag, offset, publicationType));
+        offset += max;
       }
+      const batchResults = await Promise.all(bookmarksBatch);
+      for (const bookmarks of batchResults) {
+        total = bookmarks.total;
+        for (const work of bookmarks["works"]) {
+          const fetchedWork = {
+            ...work,
+            associatedTags:
+              bookmarks["bookmarkTags"][work["bookmarkData"]["id"]] || [],
+          };
+          totalWorks.push(fetchedWork);
+          fetchPromises.push(fetchedWork);
+        }
+      }
+      await Promise.all(fetchPromises);
+      await delay(500);
+    } else {
+      const bookmarks = await fetchBookmarks(uid, tag, offset, publicationType);
+      total = bookmarks.total;
+      const works = bookmarks["works"];
+      works.forEach(
+        (w) =>
+          (w.associatedTags =
+            bookmarks["bookmarkTags"][w["bookmarkData"]["id"]] || [])
+      );
+      totalWorks.push(...works);
+      offset = totalWorks.length;
     }
     if (progressBar) {
       progressBar.innerText = totalWorks.length + "/" + total;
       const ratio = ((totalWorks.length / total) * max).toFixed(2);
       progressBar.style.width = ratio + "%";
     }
-    await Promise.all(fetchPromises);
-		await delay(500);
   }
   if (progressBar) {
     progressBar.innerText = total + "/" + total;
@@ -372,56 +392,75 @@ async function updateBookmarkTags(
     throw new TypeError("BookmarkIds is undefined or empty array");
   if (!Array.isArray(addTags) && !Array.isArray(removeTags))
     throw new TypeError("Either addTags or removeTags should be valid array");
-	
-	const batchPromises = [];
 
-	async function run(ids) {
-		const requests = [];
-		
-    if (addTags && addTags.length) {
-			const addTagsChunks = chunkArray(addTags, bookmarkBatchSize);
-			for (const tagsChunk of addTagsChunks) {
-				requests.push(fetchRequest("/ajax/illusts/bookmarks/add_tags", {
-					tags: tagsChunk,
-					bookmarkIds: ids,
-				}));
-			}
-		}
-    if (removeTags && removeTags.length) {
-			const removeTagsChunks = chunkArray(removeTags, bookmarkBatchSize);
-			for (const tagsChunk of removeTagsChunks) {
-				requests.push(fetchRequest("/ajax/illusts/bookmarks/remove_tags", {
-					removeTags: tagsChunk,
-					bookmarkIds: ids,
-				}));
-			}
-		}
-		if (requests.length > 1) {
-			await Promise.all(requests);
-		}
-	}
-	async function fetchRequest(url, data) {
-		const response = await fetch(url, {
-			method: "POST",
-			headers: {
-				accept: "application/json",
-				"content-type": "application/json; charset=utf-8",
-				"x-csrf-token": token,
-			},
-			body: JSON.stringify(data),
-		});
-		return response;
-	}
-	function chunkArray(arr, chunkSize) {
-		return Array.from({ length: Math.ceil(arr.length / chunkSize) }, (_, index) =>
-		arr.slice(index * chunkSize, index * chunkSize + chunkSize)
-		);
-	}
-	for (const ids of chunkArray(bookmarkIds, bookmarkBatchSize)) {
-		if (!window.runFlag) break;
-		await run(ids);
-		await delay(500)
-	}
+  async function fetchRequest(url, data) {
+    return await fetch(url, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json; charset=utf-8",
+        "x-csrf-token": token,
+      },
+      body: JSON.stringify(data),
+    });
+  }
+  async function run(ids) {
+    if (turboMode) {
+      const requests = [];
+      if (addTags && addTags.length) {
+        const addTagsChunks = chunkArray(addTags, bookmarkBatchSize);
+        for (const tagsChunk of addTagsChunks) {
+          requests.push(
+            fetchRequest("/ajax/illusts/bookmarks/add_tags", {
+              tags: tagsChunk,
+              bookmarkIds: ids,
+            })
+          );
+        }
+      }
+      if (removeTags && removeTags.length) {
+        const removeTagsChunks = chunkArray(removeTags, bookmarkBatchSize);
+        for (const tagsChunk of removeTagsChunks) {
+          requests.push(
+            fetchRequest("/ajax/illusts/bookmarks/remove_tags", {
+              removeTags: tagsChunk,
+              bookmarkIds: ids,
+            })
+          );
+        }
+      }
+      if (requests.length > 1) await Promise.all(requests);
+      await delay(500);
+    } else {
+      if (addTags && addTags.length) {
+        await fetchRequest("/ajax/illusts/bookmarks/add_tags", {
+          tags: addTags,
+          bookmarkIds: ids,
+        });
+        await delay(500);
+      }
+      if (removeTags && removeTags.length) {
+        await fetchRequest("/ajax/illusts/bookmarks/remove_tags", {
+          removeTags,
+          bookmarkIds: ids,
+        });
+        await delay(500);
+      }
+    }
+  }
+
+  let i = 0;
+  for (const ids of chunkArray(bookmarkIds, bookmarkBatchSize)) {
+    if (!window.runFlag) break;
+    await run(ids);
+    if (progressBar) {
+      i++;
+      const offset = Math.min(i * bookmarkBatchSize, bookmarkIds.length);
+      progressBar.innerText = offset + "/" + bookmarkIds.length;
+      const ratio = ((offset / bookmarkIds.length) * 100).toFixed(2);
+      progressBar.style.width = ratio + "%";
+    }
+  }
   if (progressBar) {
     progressBar.innerText = bookmarkIds.length + "/" + bookmarkIds.length;
     progressBar.style.width = "100%";
@@ -771,9 +810,13 @@ async function handleLabel(evt) {
       if (!intersection.length && !prevTags.length) {
         if (addFirst === "true") {
           const first = workTags
-					.filter(tag => !exclusion.includes(tag) && tag.length <= 20 && !tag.includes("入り"))
-					.filter(tag => !Object.values(synonymDict).flat().some(synonym => workTags.includes(synonym)))
-					.slice(0, 1); // Can be changed if you want to add more than 1 tag from the same work
+            .filter(
+              (tag) =>
+                !exclusion.includes(tag) &&
+                tag.length <= 20 &&
+                !tag.includes("入り")
+            )
+            .slice(0, 1); // Can be changed if you want to add more than 1 tag from the same work
           if (first) {
             intersection.push(...first);
             userTags.push(...first);
@@ -1987,6 +2030,9 @@ function createModalElements() {
         .forEach((w) => displayWork(w, resultsDiv, textColor));
     });
 
+  const tagSelectionDialog = getValue("tagSelectionDialog", "false") === "true";
+
+  /* eslint-disable indent */
   const featureModal = document.createElement("div");
   featureModal.className = "modal fade";
   featureModal.id = "feature_modal";
@@ -2101,7 +2147,17 @@ function createModalElements() {
             替换标签选择对话框，原生对话框使用收藏数进行排序，替换后将依照读音、作品、角色等进行排序<br />
             Replace the native tag-selection dialog, which uses the number of works to sort. New dialog will display the tags in alphabetical order, divided by characters and others.
           </div>
-          <button class="btn btn-outline-primary">切换 / Switch</button>
+          <button class="btn btn-outline-primary">${
+            tagSelectionDialog ? "禁用 / Disable" : "启用 / Enable"
+          }</button>
+          <hr class="my-3" />
+          <div class="fw-light mb-3">
+            警告：加速模式下大部分网络请求之间的等待时间被移除，这使得收藏夹的加载更新速度变快，但也会增加您的账号被Pixiv封禁的风险，请谨慎决定是否使用该模式。<br />
+            Warning: Most delay time between requests is removed in this mode, in order to speed up the loading and updating process of your bookmarks. But it will also increase the risk your account being banned by Pixiv. Please decide carefully whether to use this function.
+          </div>
+          <button class="btn btn-outline-danger">${
+            turboMode ? "禁用 / Disable" : "启用 / Enable"
+          }</button>
         </div>
         <div class="fw-bold text-center mt-4 d-none" id="feature_prompt"></div>
         <div class="progress mt-3 d-none" id="feature_modal_progress" style="min-height: 1rem">
@@ -2119,6 +2175,7 @@ function createModalElements() {
   featureModal
     .querySelector("#feature_footer_stop_button")
     .addEventListener("click", () => (window.runFlag = false));
+  /* eslint-disable indent */
 
   const featurePrompt = featureModal.querySelector("#feature_prompt");
   const featureProgress = featureModal.querySelector("#feature_modal_progress");
@@ -2660,13 +2717,20 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
     }
   });
   // switch dialog
-  const switchDialogButton = featureModal
+  const switchDialogButtons = featureModal
     .querySelector("#feature_switch_tag_dialog")
-    .querySelector("button");
-  switchDialogButton.addEventListener("click", () => {
+    .querySelectorAll("button");
+  // dialog style
+  switchDialogButtons[0].addEventListener("click", () => {
     const tagSelectionDialog = getValue("tagSelectionDialog", "false");
     if (tagSelectionDialog === "false") setValue("tagSelectionDialog", "true");
     else setValue("tagSelectionDialog", "false");
+    window.location.reload();
+  });
+  // turbo mode
+  switchDialogButtons[1].addEventListener("click", () => {
+    if (turboMode) setValue("turboMode", "false");
+    else setValue("turboMode", "true");
     window.location.reload();
   });
 
@@ -3757,6 +3821,7 @@ function registerMenu() {
       setValue("DEBUG", "true");
       window.location.reload();
     });
+  turboMode = getValue("turboMode", "false") === "true";
 }
 
 (function () {
