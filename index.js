@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      5.14
+// @version      5.15
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -20,17 +20,11 @@
 
 // ==/UserScript==
 
-const version = "5.14";
-const latest = `♢ 新增加速模式选项，通过移除请求间的等待时间加速脚本运行（在其他功能中）
-♢ Added Turbo Mode that removes most delay time between requests to increase the speed of the script (Function Page)
-♢ 新增是否严格匹配作品标签与用户标签的角色名与作品名选项（默认是，在添加标签-高级设置中）
-♢ Added options whether work tag and user tag need to strictly match their character name and work title (Yes by default, Label Page - Advanced)
-♢ 新增替换标签选择对话框功能，将按照读音顺序展示标签（在其他功能中）
-♢ Added functions to replace the tag-selection dialog, displaying tags alphabetically (Function Page)
-♢ 新增识别作者名与uid用于自动标签功能（在添加标签-高级设置中）
-♢ Added functions to regard author name and uid as work tags (Label Page - Advanced)
-♢ 新增显示用户标签功能（在脚本管理器菜单中）
-♢ Added functions to show user-labeled tags (in script manager menu)`;
+const version = "5.15";
+const latest = `♢ 新增批量为失效作品添加INVALID标签功能（在其他功能中）
+♢ Added Functions to label deleted/private works as INVALID (Function Page)
+♢ 新增加速模式选项，通过移除请求间的等待时间加速脚本运行（在其他功能中）
+♢ Added Turbo Mode that removes most delay time between requests to increase the speed of the script (Function Page)`;
 
 let uid,
   token,
@@ -280,52 +274,66 @@ async function fetchAllBookmarksByTag(
   let total = 65535,
     offset = 0,
     totalWorks = [];
-
-  while (offset < total && window.runFlag) {
-    if (turboMode) {
-      const fetchPromises = [];
-      const bookmarksBatch = [];
-      const batchSize = 10;
-      for (let i = 0; i < batchSize && offset < total; i++) {
-        bookmarksBatch.push(fetchBookmarks(uid, tag, offset, publicationType));
-        offset += max;
-      }
-      const batchResults = await Promise.all(bookmarksBatch);
-      for (const bookmarks of batchResults) {
-        total = bookmarks.total;
-        for (const work of bookmarks["works"]) {
-          const fetchedWork = {
-            ...work,
-            associatedTags:
-              bookmarks["bookmarkTags"][work["bookmarkData"]["id"]] || [],
-          };
-          totalWorks.push(fetchedWork);
-          fetchPromises.push(fetchedWork);
+  try {
+    while (offset < total && window.runFlag) {
+      if (turboMode) {
+        const fetchPromises = [];
+        const bookmarksBatch = [];
+        const batchSize = 10;
+        for (let i = 0; i < batchSize && offset < total; i++) {
+          bookmarksBatch.push(
+            fetchBookmarks(uid, tag, offset, publicationType)
+          );
+          offset += max;
         }
+        const batchResults = await Promise.all(bookmarksBatch);
+        for (const bookmarks of batchResults) {
+          total = bookmarks.total;
+          for (const work of bookmarks["works"]) {
+            const fetchedWork = {
+              ...work,
+              associatedTags:
+                bookmarks["bookmarkTags"][work["bookmarkData"]["id"]] || [],
+            };
+            totalWorks.push(fetchedWork);
+            fetchPromises.push(fetchedWork);
+          }
+        }
+        await Promise.all(fetchPromises);
+        await delay(500);
+      } else {
+        const bookmarks = await fetchBookmarks(
+          uid,
+          tag,
+          offset,
+          publicationType
+        );
+        total = bookmarks.total;
+        const works = bookmarks["works"];
+        works.forEach(
+          (w) =>
+            (w.associatedTags =
+              bookmarks["bookmarkTags"][w["bookmarkData"]["id"]] || [])
+        );
+        totalWorks.push(...works);
+        offset = totalWorks.length;
       }
-      await Promise.all(fetchPromises);
-      await delay(500);
-    } else {
-      const bookmarks = await fetchBookmarks(uid, tag, offset, publicationType);
-      total = bookmarks.total;
-      const works = bookmarks["works"];
-      works.forEach(
-        (w) =>
-          (w.associatedTags =
-            bookmarks["bookmarkTags"][w["bookmarkData"]["id"]] || [])
-      );
-      totalWorks.push(...works);
-      offset = totalWorks.length;
+      if (progressBar) {
+        progressBar.innerText = totalWorks.length + "/" + total;
+        const ratio = ((totalWorks.length / total) * max).toFixed(2);
+        progressBar.style.width = ratio + "%";
+      }
     }
+  } catch (err) {
+    window.alert(
+      `获取收藏夹时发生错误，请截图到GitHub反馈\nAn error was caught during fetching bookmarks. You might report it on GitHub${err.name}: ${err.message}\n${err.stack}`
+    );
+    console.log(err);
+  } finally {
     if (progressBar) {
-      progressBar.innerText = totalWorks.length + "/" + total;
-      const ratio = ((totalWorks.length / total) * max).toFixed(2);
-      progressBar.style.width = ratio + "%";
+      progressBar.innerText = total + "/" + total;
+      progressBar.style.width = "100%";
     }
-  }
-  if (progressBar) {
-    progressBar.innerText = total + "/" + total;
-    progressBar.style.width = "100%";
   }
   return totalWorks;
 }
@@ -2090,8 +2098,8 @@ function createModalElements() {
         <hr class="my-3" />
         <div class="mb-4">
           <div class="fw-light mb-3">
-            批量删除不可见作品，如果您有较早的收藏夹备份，可以使用下方的查询失效作品查找失效作品信息<br />
-            Batch removing deleted/private works. If you have a previous backup of your bookmarks, you can use 'Lookup Invalid Works' below to get those invalid work details.
+            批量标记，或删除不可见作品，如果您有较早的收藏夹备份，可以使用下方的查询失效作品查找失效作品信息<br />
+            Batch labeling or removing deleted/private works. If you have a previous backup of your bookmarks, you can use 'Lookup Invalid Works' below to get those invalid work details.
           </div>
           <div class="mb-2" id="feature_batch_remove_invalid_buttons">
             <button class="btn btn-outline-primary">加载失效作品信息 / Load Invalid Works</button>
