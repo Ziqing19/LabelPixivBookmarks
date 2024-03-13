@@ -2360,7 +2360,7 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
       featureProgress.classList.add("d-none");
       if (invalidShow.length || invalidHide.length) {
         display.innerHTML =
-          `<div class="row">` +
+          `<div class="row" style="max-height: 30vh; overflow-y: scroll;">` +
           [...invalidShow, ...invalidHide]
             .map((w) => {
               const { id, associatedTags, restrict, xRestrict } = w;
@@ -2385,10 +2385,43 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
             })
             .join("") +
           `</div>`;
-        const confirmButton = document.createElement("button");
-        confirmButton.className = "btn btn-outline-danger mt-3";
-        confirmButton.innerText = "确认删除 / Confirm Removing";
-        confirmButton.addEventListener("click", async (evt) => {
+        const buttonContainer = document.createElement("div");
+        buttonContainer.className = "d-flex mt-3";
+        const labelButton = document.createElement("button");
+        labelButton.className = "btn btn-outline-primary";
+        labelButton.innerText = "标记失效 / Label As Invalid";
+        labelButton.addEventListener("click", async (evt) => {
+          evt.preventDefault();
+          if (
+            !window.confirm(
+              `是否确认批量为失效作品添加"INVALID"标签\nInvalid works (deleted/private) will be labelled as INVALID. Is this okay?`
+            )
+          )
+            return;
+          window.runFlag = true;
+          const bookmarkIds = [...invalidShow, ...invalidHide]
+            .filter((w) => !w.associatedTags.includes("INVALID"))
+            .map((w) => w["bookmarkData"]["id"]);
+          featureProgress.classList.remove("d-none");
+          featurePrompt.classList.remove("d-none");
+          featurePrompt.innerText =
+            "添加标签中，请稍后 / Labeling invalid bookmarks";
+          await updateBookmarkTags(
+            bookmarkIds,
+            ["INVALID"],
+            null,
+            featureProgressBar
+          );
+          featurePrompt.innerText =
+            "标记完成，即将刷新页面 / Updated. The page is going to reload.";
+          setTimeout(() => {
+            if (window.runFlag && !hold) window.location.reload();
+          }, 1000);
+        });
+        const removeButton = document.createElement("button");
+        removeButton.className = "btn btn-outline-danger ms-auto";
+        removeButton.innerText = "确认删除 / Confirm Removing";
+        removeButton.addEventListener("click", async (evt) => {
           evt.preventDefault();
           if (
             !window.confirm(
@@ -2411,7 +2444,9 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
             if (window.runFlag && !hold) window.location.reload();
           }, 1000);
         });
-        display.appendChild(confirmButton);
+        buttonContainer.appendChild(labelButton);
+        buttonContainer.appendChild(removeButton);
+        display.appendChild(buttonContainer);
       } else {
         display.innerText = "未检测到失效作品 / No invalid works detected";
       }
@@ -2484,7 +2519,7 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
           await run("hide");
           if (invalidArray.length) {
             featureBookmarkDisplay.innerHTML =
-              `<div class="row">` +
+              `<div class="row" style="max-height: 30vh; overflow-y: scroll;">` +
               invalidArray
                 .map((w) => {
                   const {
