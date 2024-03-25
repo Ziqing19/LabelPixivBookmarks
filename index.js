@@ -250,6 +250,7 @@ function loadResources() {
   style.innerHTML =
     "*,::after,::before { box-sizing: content-box; } .btn,.form-control,.form-select,.row>* { box-sizing: border-box; } body { background: initial; }";
   document.head.appendChild(style);
+  if (DEBUG) console.log("[Label Bookmarks] Stylesheet Loaded");
 }
 
 const bookmarkBatchSize = 100;
@@ -2987,19 +2988,25 @@ async function updateWorkInfo(bookmarkTags) {
 
 async function initializeVariables() {
   async function polyfill() {
-    const dataLayer = unsafeWindow_["dataLayer"][0];
-    uid = dataLayer["user_id"];
-    lang = dataLayer["lang"];
-    token = await fetchTokenPolyfill();
-    pageInfo.userId = window.location.href.match(/users\/(\d+)/)?.[1];
-    pageInfo.client = { userId: uid, lang, token };
+    try {
+      const dataLayer = unsafeWindow_["dataLayer"][0];
+      uid = dataLayer["user_id"];
+      lang = dataLayer["lang"];
+      token = await fetchTokenPolyfill();
+      pageInfo.userId = window.location.href.match(/users\/(\d+)/)?.[1];
+      pageInfo.client = { userId: uid, lang, token };
+    } catch (err) {
+      console.log(err);
+      console.log("[Label Bookmarks] Initializing Failed");
+    }
   }
 
   try {
+    if (DEBUG) console.log("[Label Bookmarks] Initializing Variables");
     pageInfo = Object.values(document.querySelector(BANNER))[0]["return"][
       "return"
     ]["memoizedProps"];
-    if (DEBUG) console.log(pageInfo);
+    if (DEBUG) console.log("[Label Bookmarks] Page Info", pageInfo);
     uid = pageInfo["client"]["userId"];
     token = pageInfo["client"]["token"];
     lang = pageInfo["client"]["lang"];
@@ -3045,6 +3052,7 @@ async function initializeVariables() {
     }
     setValue("synonymDict", synonymDict);
   }
+  if (DEBUG) console.log("[Label Bookmarks] Initialized");
 }
 
 const maxRetries = 100;
@@ -3061,9 +3069,11 @@ async function waitForDom(selector) {
 }
 
 async function injectElements() {
+  if (DEBUG) console.log("[Label Bookmarks] Start Injecting");
   const textColor = theme ? "text-lp-dark" : "text-lp-light";
   const pageBody = document.querySelector(PAGE_BODY);
   const root = document.querySelector("nav");
+  if (!root) console.log("[Label Bookmarks] Navbar Not Found");
   root.classList.add("d-flex");
   const buttonContainer = document.createElement("span");
   buttonContainer.className = "flex-grow-1 justify-content-end d-flex";
@@ -3111,21 +3121,28 @@ async function injectElements() {
 
   async function injection(_, injectionObserver) {
     if (_) console.log(_);
-    if (pageInfo["userId"] !== uid) return;
+    if (pageInfo["userId"] !== uid) {
+      if (DEBUG)
+        console.log(
+          "[Label Bookmarks] Aborted Injection due to mismatch homepage"
+        );
+      return true;
+    }
     if (injectionObserver) injectionObserver.disconnect();
 
     console.log("[Label Bookmarks] Try Injecting");
 
     const workInfo = await updateWorkInfo(true);
-    if (DEBUG) console.log(workInfo);
     if (!workInfo["works"]) {
       if (injectionObserver)
         injectionObserver.observe(pageBody, { childList: true });
-      return console.log("[Label Bookmarks] Abort Injection");
+      return console.log(
+        "[Label Bookmarks] Abort Injection due to no works detected yet"
+      );
     }
     if (DEBUG) {
-      console.log("user tags", userTags, userTagDict);
-      console.log("dict:", synonymDict);
+      console.log("[Label Bookmarks] User Tags", userTags, userTagDict);
+      console.log("[Label Bookmarks] Dict:", synonymDict);
     }
 
     root.appendChild(buttonContainer);
@@ -3137,7 +3154,7 @@ async function injectElements() {
     const ul = await waitForDom("ul.sc-9y4be5-1");
     async function updateAssociatedTagsCallback() {
       const workInfo = await updateWorkInfo(true);
-      if (DEBUG) console.log("Page", workInfo.page, workInfo);
+      if (DEBUG) console.log("[Label Bookmarks] Page", workInfo.page, workInfo);
       [...ul.querySelectorAll("[type='illust']")].forEach((img, i) => {
         const pa = img.parentElement;
         if (showWorkTags) {
@@ -3243,7 +3260,11 @@ async function injectElements() {
               : "Delete Tag " + workInfo.tag;
         }
       }
-      if (DEBUG) console.log("Current Tag:", workInfo.tag);
+      if (DEBUG)
+        console.log(
+          "[Label Bookmarks] Current Tag",
+          workInfo.tag || "Uncategorized"
+        );
     }).observe(tagsContainer, {
       subtree: true,
       childList: true,
@@ -3328,6 +3349,7 @@ async function injectElements() {
   }
 
   if (!(await injection())) {
+    console.log("[Label Bookmarks] Injecting Failed on the first try");
     const pageObserver = new MutationObserver(injection);
     pageObserver.observe(pageBody, { childList: true });
   }
@@ -3534,6 +3556,7 @@ function setElementProperties() {
   document
     .querySelector("#stop_remove_tag_button")
     .addEventListener("click", () => (window.runFlag = false));
+  if (DEBUG) console.log("[Label Bookmarks] Element Properties Set");
 }
 
 function setSynonymEventListener() {
@@ -3859,6 +3882,7 @@ function setAdvancedSearch() {
   const basic = document.querySelector("#basic_search_field");
   const advanced = document.querySelector("#advanced_search_fields");
   basic.appendChild(generateBasicField());
+  if (DEBUG) console.log("[Label Bookmarks] Advanced Search Set");
 }
 
 function registerMenu() {
