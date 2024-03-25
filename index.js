@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      5.15
+// @version      5.16
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -20,8 +20,12 @@
 
 // ==/UserScript==
 
-const version = "5.15";
-const latest = `♢ 新增批量为失效作品添加INVALID标签功能（在其他功能中）
+const version = "5.16";
+const latest = `♢ 新增显示失效作品的PID
+♢ Added Functions to show PID for invalid works
+♢ 新增高级选项，是否添加所有作品标签至用户标签
+♢ Added advanced options to add all work tags to user tags
+♢ 新增批量为失效作品添加INVALID标签功能（在其他功能中）
 ♢ Added Functions to label deleted/private works as INVALID (Function Page)
 ♢ 新增加速模式选项，通过移除请求间的等待时间加速脚本运行（在其他功能中）
 ♢ Added Turbo Mode that removes most delay time between requests to increase the speed of the script (Function Page)`;
@@ -683,6 +687,7 @@ async function handleLabel(evt) {
   evt.preventDefault();
 
   const addFirst = document.querySelector("#label_add_first").value;
+  const addAllTags = document.querySelector("#label_add_all_tags").value;
   const tagToQuery = document.querySelector("#label_tag_query").value;
   const publicationType = (await updateWorkInfo())["restrict"]
     ? "hide"
@@ -699,12 +704,21 @@ async function handleLabel(evt) {
 
   console.log("Label Configuration:");
   console.log(
-    `addFirst: ${addFirst === "true"}; tagToQuery: ${tagToQuery}; labelR18: ${
+    `addFirst: ${addFirst === "true"}; addAllTags: ${
+      addAllTags === "true"
+    }; tagToQuery: ${tagToQuery}; labelR18: ${
       labelR18 === "true"
-    }; labelSafe: ${labelSafe}; labelAI: ${labelAI}; publicationType: ${publicationType}; exclusion: ${exclusion.join(
-      ","
-    )}`
+    }; labelSafe: ${labelSafe}; labelAI: ${labelAI}; labelAuthor: ${
+      labelAuthor === "true"
+    }; publicationType: ${publicationType}; exclusion: ${exclusion.join(",")}`
   );
+
+  if (
+    addAllTags === "true" &&
+    !window.confirm(`作品自带的所有标签都会被优先加入用户标签，这将导致大量的标签被添加，是否确定？
+All tags that come with the work will be first added to your user tags, which can be large. Is this okay?`)
+  )
+    return;
 
   window.runFlag = true;
   const promptBottom = document.querySelector("#label_prompt");
@@ -751,9 +765,19 @@ async function handleLabel(evt) {
         continue;
       }
       const workTags = work["tags"];
-      if (labelAuthor) workTags.push(work["userName"], work["userId"]);
-      let intersection = [...userTags, ...Object.keys(synonymDict)].filter(
-        (userTag) => {
+      let intersection = [];
+      // add all work tags, and replace those which are defined in synonym dict
+      if (addAllTags === "true")
+        intersection = workTags.map(
+          (workTag) =>
+            Object.keys(synonymDict).find((userTag) =>
+              synonymDict[userTag].includes(workTag)
+            ) || workTag
+        );
+      if (labelAuthor === "true")
+        workTags.push(work["userName"], work["userId"]);
+      intersection = intersection.concat(
+        [...userTags, ...Object.keys(synonymDict)].filter((userTag) => {
           // if work tags includes this user tag
           if (
             arrayIncludes(workTags, userTag) || // full tag
@@ -775,7 +799,7 @@ async function handleLabel(evt) {
                     arrayIncludes(workTags, alias, null, getWorkTitle)))
             )
           );
-        }
+        })
       );
       // if workTags match some alias, add it to the intersection (exact match, with or without work title)
       intersection = intersection.concat(
@@ -1650,6 +1674,17 @@ function createModalElements() {
                 Whether the first tag (not ignored) will be added if there is not any match
               </label>
               <select id="label_add_first" class="form-select ${bgColor}">
+                <option value="false">否 / No</option>
+                <option value="true">是 / Yes</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-light" for="label_add_all_tags">
+                是否添加作品<b>所有</b>标签至用户标签
+                <br />
+                Whether <b>ALL</b> work tags will be added to your user tags
+              </label>
+              <select id="label_add_all_tags" class="form-select ${bgColor}">
                 <option value="false">否 / No</option>
                 <option value="true">是 / Yes</option>
               </select>
@@ -3104,23 +3139,32 @@ async function injectElements() {
       const workInfo = await updateWorkInfo(true);
       if (DEBUG) console.log("Page", workInfo.page, workInfo);
       [...ul.querySelectorAll("[type='illust']")].forEach((img, i) => {
-        const tagsString = workInfo["works"][i].associatedTags
-          .map((i) => "#" + i)
-          .join(" ");
-        const tagDiv = document.createElement("div");
-        tagDiv.innerHTML = `<div class="my-1" style="font-size: 10px; color: rgb(61, 118, 153); pointer-events: none">
-          ${tagsString}
-        </div>`;
         const pa = img.parentElement;
-        pa.insertBefore(tagDiv, pa.children[1]);
+        if (showWorkTags) {
+          const tagsString = workInfo["works"][i].associatedTags
+            .map((i) => "#" + i)
+            .join(" ");
+          const tagDiv = document.createElement("div");
+          tagDiv.className = "my-1";
+          tagDiv.style.cssText =
+            "font-size: 10px; color: rgb(61, 118, 153); pointer-events: none";
+          tagDiv.innerHTML = tagsString;
+          pa.insertBefore(tagDiv, pa.children[1]);
+        }
+        if (workInfo["works"][i]["userName"] === "-----") {
+          const pidDiv = document.createElement("div");
+          pidDiv.className = "my-1";
+          pidDiv.style.cssText =
+            "font-size: 10px; color: rgb(61, 118, 153); pointer-events: none";
+          pidDiv.innerHTML = `PID: ${workInfo["works"][i].id}`;
+          pa.insertBefore(pidDiv, pa.children[1]);
+        }
       });
     }
-    if (showWorkTags) {
-      await updateAssociatedTagsCallback();
-      new MutationObserver(updateAssociatedTagsCallback).observe(ul, {
-        childList: true,
-      });
-    }
+    await updateAssociatedTagsCallback();
+    new MutationObserver(updateAssociatedTagsCallback).observe(ul, {
+      childList: true,
+    });
 
     const editButtonContainer = await waitForDom(EDIT_BUTTON_CONTAINER);
     if (editButtonContainer) {
@@ -3440,6 +3484,10 @@ function setElementProperties() {
   const addFirst = document.querySelector("#label_add_first");
   addFirst.value = getValue("addFirst", "false");
   addFirst.onchange = () => setValue("addFirst", addFirst.value);
+
+  const addAllTags = document.querySelector("#label_add_all_tags");
+  addAllTags.value = getValue("addAllTags", "false");
+  addAllTags.onchange = () => setValue("addAllTags", addAllTags.value);
 
   const tagToQuery = document.querySelector("#label_tag_query");
   const tag = getValue("tagToQuery", "未分類");

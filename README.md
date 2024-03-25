@@ -111,6 +111,11 @@
   - It works when the intersection of your existing bookmark tags and tags of the work is empty, then the first tag of the image will be added
   - When ignore tags are provided, the script will use the first tag that is not ignored
 
+- Whether ALL work tags will be added to your user tags
+  - For people who just want to manage the bookmarks by the work tags
+  - Work tags will be FIRST added
+  - Synonym dict still works if you want to merge similar work tags
+
 - Publication Type for Labeling
   - Pixiv stores public and private bookmarks in different places, and they have independent tags
   - By default, the script only does label for public bookmarks
@@ -330,6 +335,11 @@ Please report bugs or new features expected at [GitHub](https://github.com/Ziqin
   - 用于没有任何***用户收藏标签***的账户进行冷启动
   - 作用为当该作品的标签与已收藏的标签***没有交集***时，默认添加该作品的第一个标签
   - 当设置了忽略标签范围时，会使用首个未被忽略的标签
+
+- 是否添加作品所有标签至用户标签
+  - 为了部分希望使用作品自带标签管理收藏夹的用户设计
+  - 作品自带标签将会被***优先***添加到用户标签
+  - 作品自带标签中的相似标签同样可以用同义词词典进行合并
 
 - 作品公开类型
   - pixiv的公开和非公开作品使用两套不同的收藏体系，标签列表也是独立的
