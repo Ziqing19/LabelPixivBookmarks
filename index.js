@@ -50,17 +50,17 @@ let unsafeWindow_ = unsafeWindow,
   GM_registerMenuCommand_ = GM_registerMenuCommand;
 
 // selectors
-const BANNER = ".sc-8bf48ebe-0";
-const THEME_CONTAINER = "html";
-const WORK_SECTION = "section.sc-3d8ed48f-0"; // 作品section，从works->pagination
-const WORK_CONTAINER = "ul.sc-7d21cb21-1.jELUak"; // 仅包含作品
-const PAGE_BODY = ".sc-2b45994f-0.cUskQy"; // 自主页、收藏起下方
-const EDIT_BUTTON_CONTAINER = ".sc-9d335d39-6.cfUrtF"; // 管理收藏按钮父容器，包含左侧作品文字
-const REMOVE_BOOKMARK_CONTAINER = ".sc-231887f1-4.kvBpUA";
-const WORK_NUM = ".sc-b5e6ab10-0.hfQbJx";
-const ADD_TAGS_MODAL_ENTRY = ".bbTNLI"; // 原生添加标签窗口中标签按钮
-const ALL_TAGS_BUTTON = ".jkGZFM"; // 标签切换窗口触发按钮
-const ALL_TAGS_CONTAINER = ".hpRxDJ"; // 标签按钮容器
+const BANNER = ".sc-8bf48ebe-0"; // 对应用户头像、背景图所在的整个顶部区域
+const THEME_CONTAINER = "html"; // 这个通常不会变
+const WORK_SECTION = "section.sc-498c1dba-0"; // 包含作品列表和筛选按钮的整个区块
+const WORK_CONTAINER = "ul.sc-bf8cea3f-1"; // 直接包含作品缩略图(li)的列表(ul)
+const PAGE_BODY = ".sc-1e6e6d57-0"; // 页面主要内容区域，用于监测变化
+const EDIT_BUTTON_CONTAINER = ".sc-601b27a4-6"; // 包含“管理收藏”按钮和“作品”标题的那一行
+const WORK_NUM = ".sc-b5e6ab10-0"; // 显示作品数量的元素
+const ALL_TAGS_BUTTON = ".sc-461ddb40-0"; // “所有标签”按钮 (通常是三个点)
+const ALL_TAGS_CONTAINER = ".sc-461ddb40-2"; // 标签按钮（如“未分类”）的容器
+const REMOVE_BOOKMARK_CONTAINER = ".sc-231887f1-4.kvBpUA"; // 点击“管理收藏”后出现的容器，
+const ADD_TAGS_MODAL_ENTRY = ".bbTNLI"; // 原生添加标签窗口中的标签按钮，
 const ALL_TAGS_MODAL = ".ggMyQW"; // 原生标签切换窗口
 const ALL_TAGS_MODAL_CONTAINER = ".gOPhqx"; // 原生标签切换窗口中标签按钮容器
 
@@ -256,15 +256,15 @@ const bookmarkBatchSize = 100;
 async function fetchBookmarks(uid, tagToQuery, offset, publicationType) {
   const bookmarksRaw = await fetch(
     `/ajax/user/${uid}` +
-      `/illusts/bookmarks?tag=${tagToQuery}` +
-      `&offset=${offset}&limit=${bookmarkBatchSize}&rest=${publicationType}`,
+    `/illusts/bookmarks?tag=${tagToQuery}` +
+    `&offset=${offset}&limit=${bookmarkBatchSize}&rest=${publicationType}`,
   );
   if (!turboMode) await delay(500);
   const bookmarksRes = await bookmarksRaw.json();
   if (!bookmarksRaw.ok || bookmarksRes.error === true) {
     return alert(
       `获取用户收藏夹列表失败\nFail to fetch user bookmarks\n` +
-        decodeURI(bookmarksRes.message),
+      decodeURI(bookmarksRes.message),
     );
   } else return bookmarksRes.body;
 }
@@ -316,8 +316,8 @@ async function fetchAllBookmarksByTag(
         const works = bookmarks["works"];
         works.forEach(
           (w) =>
-            (w.associatedTags =
-              bookmarks["bookmarkTags"][w["bookmarkData"]["id"]] || []),
+          (w.associatedTags =
+            bookmarks["bookmarkTags"][w["bookmarkData"]["id"]] || []),
         );
         totalWorks.push(...works);
         offset = totalWorks.length;
@@ -704,12 +704,9 @@ async function handleLabel(evt) {
 
   console.log("Label Configuration:");
   console.log(
-    `addFirst: ${addFirst === "true"}; addAllTags: ${
-      addAllTags === "true"
-    }; tagToQuery: ${tagToQuery}; labelR18: ${
-      labelR18 === "true"
-    }; labelSafe: ${labelSafe}; labelAI: ${labelAI}; labelAuthor: ${
-      labelAuthor === "true"
+    `addFirst: ${addFirst === "true"}; addAllTags: ${addAllTags === "true"
+    }; tagToQuery: ${tagToQuery}; labelR18: ${labelR18 === "true"
+    }; labelSafe: ${labelSafe}; labelAI: ${labelAI}; labelAuthor: ${labelAuthor === "true"
     }; publicationType: ${publicationType}; exclusion: ${exclusion.join(",")}`,
   );
 
@@ -1212,9 +1209,9 @@ function galleryMode(evt, work) {
     masterUrl = work.url.includes("limit_unknown")
       ? work.url
       : host +
-        work.url
-          .match(/\/img\/.*/)[0]
-          .replace(/_(custom|square)1200/, "_master1200");
+      work.url
+        .match(/\/img\/.*/)[0]
+        .replace(/_(custom|square)1200/, "_master1200");
     imageContainer.innerHTML = `
       <div class="text-center">
         <img class="gallery-image mb-2" src=${masterUrl} alt="master">
@@ -1257,9 +1254,9 @@ function galleryMode(evt, work) {
     const url = work.url.includes("limit_unknown")
       ? work.url
       : host +
-        work.url
-          .match(/\/img\/.*/)[0]
-          .replace(/_(custom|square)1200/, "_master1200");
+      work.url
+        .match(/\/img\/.*/)[0]
+        .replace(/_(custom|square)1200/, "_master1200");
     const img = new Image();
     img.src = url;
   }
@@ -2195,17 +2192,15 @@ function createModalElements() {
             替换标签选择对话框，原生对话框使用收藏数进行排序，替换后将依照读音、作品、角色等进行排序<br />
             Replace the native tag-selection dialog, which uses the number of works to sort. New dialog will display the tags in alphabetical order, divided by characters and others.
           </div>
-          <button class="btn btn-outline-primary">${
-            tagSelectionDialog ? "禁用 / Disable" : "启用 / Enable"
-          }</button>
+          <button class="btn btn-outline-primary">${tagSelectionDialog ? "禁用 / Disable" : "启用 / Enable"
+    }</button>
           <hr class="my-3" />
           <div class="fw-light mb-3">
             警告：加速模式下大部分网络请求之间的等待时间被移除，这使得收藏夹的加载更新速度变快，但也会增加您的账号被Pixiv封禁的风险，请谨慎决定是否使用该模式。<br />
             Warning: Most delay time between requests is removed in this mode, in order to speed up the loading and updating process of your bookmarks. But it will also increase the risk your account being banned by Pixiv. Please decide carefully whether to use this function.
           </div>
-          <button class="btn btn-outline-danger">${
-            turboMode ? "禁用 / Disable" : "启用 / Enable"
-          }</button>
+          <button class="btn btn-outline-danger">${turboMode ? "禁用 / Disable" : "启用 / Enable"
+    }</button>
         </div>
         <div class="fw-bold text-center mt-4 d-none" id="feature_prompt"></div>
         <div class="progress mt-3 d-none" id="feature_modal_progress" style="min-height: 1rem">
@@ -2273,16 +2268,12 @@ function createModalElements() {
       const publicationType = featurePublicationType.value;
       const restrict = publicationType === "show" ? "private" : "public";
       if (
-        !window.confirm(`标签【${tag || "所有作品"}】下所有【${
-          publicationType === "show" ? "公开" : "非公开"
-        }】作品（共${works.length}项）将会被移动至【${
-          publicationType === "show" ? "非公开" : "公开"
-        }】类型，是否确认操作？
-All works of tag ${tag || "All Works"} and type ${
-          publicationType === "show" ? "PUBLIC" : "PRIVATE"
-        } (${
-          works.length
-        } in total) will be set as ${restrict.toUpperCase()}. Is this Okay?`)
+        !window.confirm(`标签【${tag || "所有作品"}】下所有【${publicationType === "show" ? "公开" : "非公开"
+          }】作品（共${works.length}项）将会被移动至【${publicationType === "show" ? "非公开" : "公开"
+          }】类型，是否确认操作？
+All works of tag ${tag || "All Works"} and type ${publicationType === "show" ? "PUBLIC" : "PRIVATE"
+          } (${works.length
+          } in total) will be set as ${restrict.toUpperCase()}. Is this Okay?`)
       )
         return;
       const instance = bootstrap_.Modal.getOrCreateInstance(progressModal);
@@ -2940,8 +2931,8 @@ async function fetchUserTags() {
     return alert(
       `获取tags失败
     Fail to fetch user tags` +
-        "\n" +
-        decodeURI(tagsObj.message),
+      "\n" +
+      decodeURI(tagsObj.message),
     );
   userTagDict = tagsObj.body;
   const userTagsSet = new Set();
@@ -3440,9 +3431,8 @@ async function updateSuggestion(
         const candidateButton = document.createElement("button");
         candidateButton.type = "button";
         candidateButton.className = "btn p-0 mb-1 d-block";
-        candidateButton.innerHTML = `${
-          candidate["tag_translation"] || "<span>🈳</span>"
-        } - ${candidate["tag_name"]}`;
+        candidateButton.innerHTML = `${candidate["tag_translation"] || "<span>🈳</span>"
+          } - ${candidate["tag_name"]}`;
         handleClickCandidateButton(candidate, candidateButton);
         suggestionEl.appendChild(candidateButton);
       }
@@ -3773,9 +3763,9 @@ function setAdvancedSearch() {
     const synonymDictKeys = Object.keys(synonymDict);
     return synonymDictKeys.length
       ? "eg: " +
-          synonymDictKeys[
-            Math.floor(Math.random() * synonymDictKeys.length)
-          ].split("(")[0]
+      synonymDictKeys[
+        Math.floor(Math.random() * synonymDictKeys.length)
+      ].split("(")[0]
       : "";
   }
   function generateBasicField() {
