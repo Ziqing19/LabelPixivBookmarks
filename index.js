@@ -63,6 +63,75 @@ const ALL_TAGS_BUTTON = ".jkGZFM"; // 标签切换窗口触发按钮
 const ALL_TAGS_CONTAINER = ".hpRxDJ"; // 标签按钮容器
 const ALL_TAGS_MODAL = ".ggMyQW"; // 原生标签切换窗口
 const ALL_TAGS_MODAL_CONTAINER = ".gOPhqx"; // 原生标签切换窗口中标签按钮容器
+const CURRENT_PAGE_SIZE = 48;
+
+function getReactData(el) {
+  if (!el) return null;
+  const key = Object.keys(el).find(
+    (key) =>
+      key.startsWith("__reactFiber$") ||
+      key.startsWith("__reactProps$") ||
+      key.startsWith("__reactInternalInstance$"),
+  );
+  return key ? el[key] : null;
+}
+
+function findDeep(root, predicate, maxDepth = 8) {
+  const seen = new Set();
+  const stack = [{ value: root, depth: 0 }];
+  while (stack.length) {
+    const { value, depth } = stack.pop();
+    if (!value || typeof value !== "object" || seen.has(value)) continue;
+    seen.add(value);
+    if (predicate(value)) return value;
+    if (depth >= maxDepth) continue;
+    for (const child of Object.values(value)) {
+      if (child && typeof child === "object") {
+        stack.push({ value: child, depth: depth + 1 });
+      }
+    }
+  }
+  return null;
+}
+
+function getBookmarkPageState() {
+  const url = new URL(window.location.href);
+  const userId = url.pathname.match(/\/users\/(\d+)/)?.[1] || uid;
+  const tagMatch = decodeURIComponent(url.pathname).match(
+    /\/bookmarks\/artworks\/?([^/]*)/,
+  );
+  const tag = tagMatch?.[1] || "";
+  const page = parseInt(url.searchParams.get("p") || "1");
+  const publicationType = url.searchParams.get("rest") === "hide" ? "hide" : "show";
+  return {
+    userId: userId ? userId.toString() : "",
+    tag,
+    page,
+    publicationType,
+    restrict: publicationType === "hide",
+    offset: (page - 1) * CURRENT_PAGE_SIZE,
+  };
+}
+
+function getClientInfoFromGlobals() {
+  const context = unsafeWindow_?.pixiv?.context || {};
+  const user = context.user || unsafeWindow_?.pixiv?.user || {};
+  const dataLayer = unsafeWindow_?.dataLayer?.[0] || {};
+  return {
+    uid: (dataLayer.user_id || user.id || context.userId || uid || "").toString(),
+    lang:
+      dataLayer.lang ||
+      context.lang ||
+      document.documentElement.lang ||
+      navigator.language ||
+      "en",
+    token:
+      context.token ||
+      unsafeWindow_?.pixiv?.token ||
+      document.querySelector("meta[name='csrf-token']")?.content ||
+      token,
+  };
+}
 
 function getCharacterName(tag) {
   return tag.split("(")[0];
@@ -253,11 +322,17 @@ function loadResources() {
 }
 
 const bookmarkBatchSize = 100;
-async function fetchBookmarks(uid, tagToQuery, offset, publicationType) {
+async function fetchBookmarks(
+  uid,
+  tagToQuery,
+  offset,
+  publicationType,
+  limit = bookmarkBatchSize,
+) {
   const bookmarksRaw = await fetch(
     `/ajax/user/${uid}` +
-      `/illusts/bookmarks?tag=${tagToQuery}` +
-      `&offset=${offset}&limit=${bookmarkBatchSize}&rest=${publicationType}`,
+      `/illusts/bookmarks?tag=${encodeURIComponent(tagToQuery || "")}` +
+      `&offset=${offset}&limit=${limit}&rest=${publicationType}`,
   );
   if (!turboMode) await delay(500);
   const bookmarksRes = await bookmarksRaw.json();
@@ -607,16 +682,21 @@ async function handleClearBookmarkTags(evt) {
 
   const works = selected
     .map((el) => {
-      const middleChild = Object.values(
-        el.parentNode.parentNode.parentNode.parentNode,
-      )[0]["child"];
-      const work = middleChild["memoizedProps"]["work"];
-      work.associatedTags =
-        middleChild["child"]["memoizedProps"]["associatedTags"] || [];
-      work.bookmarkId = middleChild["memoizedProps"]["bookmarkId"];
+      const reactData = getReactData(el.closest("li")) || getReactData(el);
+      const propsNode = findDeep(
+        reactData,
+        (obj) => obj.memoizedProps?.work && obj.memoizedProps?.bookmarkId,
+      );
+      const tagNode = findDeep(reactData, (obj) =>
+        Array.isArray(obj.memoizedProps?.associatedTags),
+      );
+      const work = propsNode?.memoizedProps?.work;
+      if (!work) return null;
+      work.associatedTags = tagNode?.memoizedProps?.associatedTags || [];
+      work.bookmarkId = propsNode.memoizedProps.bookmarkId;
       return work;
     })
-    .filter((work) => work.associatedTags.length);
+    .filter((work) => work?.associatedTags?.length);
   await clearBookmarkTags(works);
 }
 
@@ -1441,6 +1521,7 @@ function shuffle(array) {
 
 const hold = false;
 function createModalElements() {
+  if (document.querySelector("#label_modal")) return;
   // noinspection TypeScriptUMDGlobal
   const bootstrap_ = bootstrap;
   const bgColor = theme ? "bg-white" : "bg-dark";
@@ -2932,17 +3013,17 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
 }
 
 async function fetchUserTags() {
-  const tagsRaw = await fetch(
-    `/ajax/user/${uid}/illusts/bookmark/tags?lang=${lang}`,
-  );
+  const tagsRaw = await fetch(`/ajax/user/${uid}/illusts/bookmark/tags?lang=${lang}`);
   const tagsObj = await tagsRaw.json();
-  if (tagsObj.error === true)
-    return alert(
+  if (!tagsRaw.ok || tagsObj.error === true) {
+    alert(
       `获取tags失败
     Fail to fetch user tags` +
         "\n" +
-        decodeURI(tagsObj.message),
+        decodeURI(tagsObj.message || ""),
     );
+    return [];
+  }
   userTagDict = tagsObj.body;
   const userTagsSet = new Set();
   const addTag2Set = (tag) => {
@@ -2959,10 +3040,10 @@ Error loading tag ${tag}. Please press F12 and take a screenshot of the error me
       }
     }
   };
-  for (let obj of userTagDict.public) {
+  for (let obj of userTagDict.public || []) {
     addTag2Set(obj.tag);
   }
-  for (let obj of userTagDict["private"]) {
+  for (let obj of userTagDict["private"] || []) {
     addTag2Set(obj.tag);
   }
   userTagsSet.delete("未分類");
@@ -2985,34 +3066,81 @@ async function fetchTokenPolyfill() {
   return userRes.slice(tokenPos, tokenEnd).split('"')[1];
 }
 
+async function fetchCurrentWorkInfo(bookmarkTags) {
+  const state = getBookmarkPageState();
+  if (!state.userId) return null;
+  const bookmarks = await fetchBookmarks(
+    state.userId,
+    state.tag,
+    state.offset,
+    state.publicationType,
+    CURRENT_PAGE_SIZE,
+  );
+  if (!bookmarks?.works) return null;
+  if (bookmarkTags) {
+    bookmarks.works.forEach((work) => {
+      const bookmarkId = work["bookmarkData"]?.["id"];
+      work.associatedTags = bookmarks["bookmarkTags"]?.[bookmarkId] || [];
+    });
+  }
+  return {
+    ...bookmarks,
+    ...state,
+    tag: state.tag,
+    editMode: !!document.querySelector(REMOVE_BOOKMARK_CONTAINER),
+  };
+}
+
 async function updateWorkInfo(bookmarkTags) {
+  try {
+    const workInfo = await fetchCurrentWorkInfo(bookmarkTags);
+    if (workInfo?.works) return workInfo;
+  } catch (err) {
+    if (DEBUG) console.log("[Label Bookmarks] API work info failed", err);
+  }
+
   const el = await waitForDom(WORK_SECTION);
   let workInfo = {};
   for (let i = 0; i < 100; i++) {
-    workInfo = Object.values(el)[0]["memoizedProps"]["children"][2]["props"];
+    const reactData = getReactData(el);
+    workInfo =
+      reactData?.memoizedProps?.children?.[2]?.props ||
+      findDeep(reactData, (obj) => Array.isArray(obj.works)) ||
+      {};
     if (Object.keys(workInfo).length) break;
     else await delay(200);
   }
   if (bookmarkTags) {
     [...el.querySelectorAll("li")].forEach((li, i) => {
-      workInfo["works"][i].associatedTags =
-        Object.values(li)[0].child.child["memoizedProps"].associatedTags;
+      const reactData = getReactData(li);
+      const propsWithTags = findDeep(reactData, (obj) =>
+        Array.isArray(obj.associatedTags),
+      );
+      if (workInfo["works"]?.[i]) {
+        workInfo["works"][i].associatedTags =
+          propsWithTags?.associatedTags || [];
+      }
     });
   }
-  const page = window.location.search.match(/p=(\d+)/)?.[1] || 1;
-  workInfo.page = parseInt(page);
-  return workInfo;
+  const state = getBookmarkPageState();
+  return { ...workInfo, ...state, tag: workInfo.tag || state.tag };
 }
 
 async function initializeVariables() {
   async function polyfill() {
     try {
-      const dataLayer = unsafeWindow_["dataLayer"][0];
-      uid = dataLayer["user_id"];
-      lang = dataLayer["lang"];
-      token = await fetchTokenPolyfill();
-      pageInfo.userId = window.location.href.match(/users\/(\d+)/)?.[1];
+      const globalInfo = getClientInfoFromGlobals();
+      const state = getBookmarkPageState();
+      uid = globalInfo.uid || state.userId;
+      lang = globalInfo.lang || "en";
+      token = globalInfo.token;
+      pageInfo = pageInfo || {};
+      pageInfo.userId = pageInfo.userId || state.userId || uid;
       pageInfo.client = { userId: uid, lang, token };
+      if (!token) {
+        token = await fetchTokenPolyfill();
+        pageInfo.client.token = token;
+      }
     } catch (err) {
       console.log(err);
       console.log("[Label Bookmarks] Initializing Failed");
@@ -3021,13 +3149,24 @@ async function initializeVariables() {
 
   try {
     if (DEBUG) console.log("[Label Bookmarks] Initializing Variables");
-    pageInfo = Object.values(document.querySelector(BANNER))[0]["return"][
-      "return"
-    ]["memoizedProps"];
+    const globalInfo = getClientInfoFromGlobals();
+    const state = getBookmarkPageState();
+    const reactData = getReactData(document.querySelector(BANNER));
+    pageInfo =
+      reactData?.return?.return?.memoizedProps ||
+      findDeep(reactData, (obj) => obj.client?.userId) ||
+      {};
+    pageInfo.userId = (pageInfo.userId || state.userId || "").toString();
     if (DEBUG) console.log("[Label Bookmarks] Page Info", pageInfo);
-    uid = pageInfo["client"]["userId"];
-    token = pageInfo["client"]["token"];
-    lang = pageInfo["client"]["lang"];
+    uid = (
+      pageInfo["client"]?.["userId"] ||
+      globalInfo.uid ||
+      state.userId ||
+      ""
+    ).toString();
+    token = pageInfo["client"]?.["token"] || globalInfo.token;
+    lang = pageInfo["client"]?.["lang"] || globalInfo.lang || "en";
+    pageInfo.client = { userId: uid, lang, token };
     if (!uid || !token || !lang) await polyfill();
   } catch (err) {
     console.log(err);
@@ -3035,6 +3174,8 @@ async function initializeVariables() {
   }
 
   userTags = await fetchUserTags();
+  if (!Array.isArray(userTags)) userTags = [];
+  userTagDict = userTagDict || { public: [], private: [] };
 
   // workType = Object.values(document.querySelector(".sc-1x9383j-0"))[0].child["memoizedProps"]["workType"];
 
@@ -3063,6 +3204,8 @@ async function initializeVariables() {
   }).observe(themeDiv, { attributes: true });
 
   synonymDict = getValue("synonymDict", {});
+  if (!synonymDict || typeof synonymDict !== "object" || Array.isArray(synonymDict))
+    synonymDict = {};
   if (Object.keys(synonymDict).length) {
     // remove empty values on load, which could be caused by unexpected interruption
     for (let key of Object.keys(synonymDict)) {
@@ -3089,21 +3232,26 @@ async function waitForDom(selector, container) {
 async function injectElements() {
   if (DEBUG) console.log("[Label Bookmarks] Start Injecting");
   const textColor = theme ? "text-lp-dark" : "text-lp-light";
-  const pageBody = document.querySelector(PAGE_BODY);
+  const pageBody =
+    document.querySelector(PAGE_BODY) || document.querySelector("main") || document.body;
   const root = document.querySelector("nav");
-  if (!root) console.log("[Label Bookmarks] Navbar Not Found");
+  if (!root) throw new ReferenceError("[Label Bookmarks] Navbar Not Found");
   root.classList.add("d-flex");
-  const buttonContainer = document.createElement("span");
-  buttonContainer.className = "flex-grow-1 justify-content-end d-flex";
-  buttonContainer.id = "label_bookmarks_buttons";
-  const gClass = generator ? "" : "d-none";
-  const fClass = feature ? "" : "d-none";
-  buttonContainer.innerHTML = `
-        <button class="label-button ${textColor} ${fClass}" data-bs-toggle="modal" data-bs-target="#feature_modal" id="feature_modal_button"/>
-        <button class="label-button ${textColor} ${gClass}" data-bs-toggle="modal" data-bs-target="#generator_modal" id="generator_modal_button"/>
-        <button class="label-button ${textColor}" data-bs-toggle="modal" data-bs-target="#search_modal" id="search_modal_button"/>
-        <button class="label-button ${textColor}" data-bs-toggle="modal" data-bs-target="#label_modal" id="label_modal_button"/>
+  let buttonContainer = document.querySelector("#label_bookmarks_buttons");
+  if (!buttonContainer) {
+    buttonContainer = document.createElement("span");
+    buttonContainer.className = "d-flex";
+    buttonContainer.id = "label_bookmarks_buttons";
+    buttonContainer.setAttribute("aria-label", "Label Pixiv Bookmarks");
+    const gClass = generator ? "" : "d-none";
+    const fClass = feature ? "" : "d-none";
+    buttonContainer.innerHTML = `
+        <button class="label-button ${textColor} ${fClass}" data-bs-toggle="modal" data-bs-target="#feature_modal" id="feature_modal_button"></button>
+        <button class="label-button ${textColor} ${gClass}" data-bs-toggle="modal" data-bs-target="#generator_modal" id="generator_modal_button"></button>
+        <button class="label-button ${textColor}" data-bs-toggle="modal" data-bs-target="#search_modal" id="search_modal_button"></button>
+        <button class="label-button ${textColor}" data-bs-toggle="modal" data-bs-target="#label_modal" id="label_modal_button"></button>
       `;
+  }
 
   const clearTagsThemeClass = theme ? "OPGIe" : "bDwYXF";
   const clearTagsText = lang.includes("zh") ? "清除标签" : "Clear Tags";
@@ -3139,7 +3287,8 @@ async function injectElements() {
 
   async function injection(_, injectionObserver) {
     if (_) console.log(_);
-    if (pageInfo["userId"] !== uid) {
+    const pageUserId = getBookmarkPageState().userId || pageInfo?.["userId"];
+    if (pageUserId && uid && pageUserId.toString() !== uid.toString()) {
       if (DEBUG)
         console.log(
           "[Label Bookmarks] Aborted Injection due to mismatch homepage",
@@ -3150,144 +3299,170 @@ async function injectElements() {
 
     console.log("[Label Bookmarks] Try Injecting");
 
-    const workInfo = await updateWorkInfo(true);
+    if (buttonContainer.parentElement !== document.body)
+      document.body.appendChild(buttonContainer);
+    setElementProperties();
+    if (!window.labelBookmarksSynonymEventSet) {
+      setSynonymEventListener();
+      window.labelBookmarksSynonymEventSet = true;
+    }
+    if (!document.querySelector("#basic_search_field").children.length)
+      setAdvancedSearch();
+
+    let workInfo = {};
+    try {
+      workInfo = await updateWorkInfo(true);
+    } catch (err) {
+      console.log("[Label Bookmarks] Work info unavailable, buttons injected", err);
+      return true;
+    }
     if (!workInfo["works"]) {
-      if (injectionObserver)
+      if (injectionObserver && pageBody)
         injectionObserver.observe(pageBody, { childList: true });
-      return console.log(
+      console.log(
         "[Label Bookmarks] Abort Injection due to no works detected yet",
       );
+      return false;
     }
     if (DEBUG) {
       console.log("[Label Bookmarks] User Tags", userTags, userTagDict);
       console.log("[Label Bookmarks] Dict:", synonymDict);
     }
 
-    root.appendChild(buttonContainer);
-    setElementProperties();
-    setSynonymEventListener();
-    setAdvancedSearch();
-
     // show user-labeled tags
-    const ul = await waitForDom(WORK_CONTAINER);
-    async function updateAssociatedTagsCallback() {
-      const workInfo = await updateWorkInfo(true);
-      if (DEBUG) console.log("[Label Bookmarks] Page", workInfo.page, workInfo);
-      // TODO
-      [...ul.querySelectorAll("li")].forEach((li, i) => {
-        const pa = li.firstElementChild.firstElementChild;
-        if (showWorkTags) {
-          const tagsString = workInfo["works"][i].associatedTags
-            .map((i) => "#" + i)
-            .join(" ");
-          const tagDiv = document.createElement("div");
-          tagDiv.className = "my-1";
-          tagDiv.style.cssText =
-            "font-size: 10px; color: rgb(61, 118, 153); pointer-events: none";
-          tagDiv.innerHTML = tagsString;
-          pa.insertBefore(tagDiv, pa.children[1]);
-        }
-        if (workInfo["works"][i]["userName"] === "-----") {
-          const pidDiv = document.createElement("div");
-          pidDiv.className = "my-1";
-          pidDiv.style.cssText =
-            "font-size: 10px; color: rgb(61, 118, 153); pointer-events: none";
-          pidDiv.innerHTML = `PID: ${workInfo["works"][i].id}`;
-          pa.insertBefore(pidDiv, pa.children[1]);
-        }
-      });
-    }
-    await updateAssociatedTagsCallback();
-    new MutationObserver(updateAssociatedTagsCallback).observe(ul, {
-      childList: true,
-    });
-
-    const editButtonContainer = await waitForDom(EDIT_BUTTON_CONTAINER);
-    if (editButtonContainer) {
-      editButtonContainer.style.justifyContent = "initial";
-      editButtonContainer.firstElementChild.style.marginRight = "auto";
-      editButtonContainer.insertBefore(
-        removeTagButton,
-        editButtonContainer.lastChild,
-      );
-      let removeBookmarkContainerObserver;
-      const editButtonObserver = new MutationObserver(
-        async (MutationRecord) => {
-          const { tag } = await updateWorkInfo();
-          if (!MutationRecord[0].addedNodes.length) {
-            // open edit mode
-            const removeBookmarkContainer = document.querySelector(
-              REMOVE_BOOKMARK_CONTAINER,
-            );
-            removeBookmarkContainer.appendChild(clearTagsButton);
-            removeBookmarkContainerObserver = new MutationObserver(() => {
-              const value =
-                removeBookmarkContainer.children[2].getAttribute(
-                  "aria-disabled",
-                );
-              clearTagsButton.setAttribute("aria-disabled", value);
-              clearTagsButton.children[0].setAttribute("aria-disabled", value);
-            });
-            removeBookmarkContainerObserver.observe(
-              removeBookmarkContainer.children[2],
-              { attributes: true },
-            );
-            if (tag && tag !== "未分類") {
-              document.querySelector("#remove_tag_prompt").innerText =
-                lang.includes("zh") ? "删除标签 " + tag : "Delete Tag " + tag;
-              removeTagButton.style.display = "flex";
-            }
-          } else {
-            // exit edit mode
-            removeTagButton.style.display = "none";
-            if (removeBookmarkContainerObserver)
-              removeBookmarkContainerObserver.disconnect();
-            clearTagsButton.setAttribute("aria-disabled", "true");
-            clearTagsButton.children[0].setAttribute("aria-disabled", "true");
+    try {
+      const ul = await waitForDom(WORK_CONTAINER);
+      async function updateAssociatedTagsCallback() {
+        const workInfo = await updateWorkInfo(true);
+        if (DEBUG) console.log("[Label Bookmarks] Page", workInfo.page, workInfo);
+        [...ul.querySelectorAll("li")].forEach((li, i) => {
+          const pa = li.firstElementChild?.firstElementChild;
+          const work = workInfo["works"]?.[i];
+          if (!pa || !work) return;
+          if (showWorkTags) {
+            const tagsString = (work.associatedTags || [])
+              .map((i) => "#" + i)
+              .join(" ");
+            const tagDiv = document.createElement("div");
+            tagDiv.className = "my-1";
+            tagDiv.style.cssText =
+              "font-size: 10px; color: rgb(61, 118, 153); pointer-events: none";
+            tagDiv.innerHTML = tagsString;
+            pa.insertBefore(tagDiv, pa.children[1]);
           }
-        },
-      );
-      editButtonObserver.observe(editButtonContainer, {
+          if (work["userName"] === "-----") {
+            const pidDiv = document.createElement("div");
+            pidDiv.className = "my-1";
+            pidDiv.style.cssText =
+              "font-size: 10px; color: rgb(61, 118, 153); pointer-events: none";
+            pidDiv.innerHTML = `PID: ${work.id}`;
+            pa.insertBefore(pidDiv, pa.children[1]);
+          }
+        });
+      }
+      await updateAssociatedTagsCallback();
+      new MutationObserver(updateAssociatedTagsCallback).observe(ul, {
         childList: true,
       });
+    } catch (err) {
+      console.log("[Label Bookmarks] Work container unavailable, skipped", err);
     }
 
-    let lastTag = workInfo.tag;
-    const tagsContainer = await waitForDom(ALL_TAGS_CONTAINER);
-    new MutationObserver(async () => {
-      const workInfo = await updateWorkInfo();
-      if (lastTag !== workInfo.tag) {
-        lastTag = workInfo.tag;
-        const removeTagButton = document.querySelector("#remove_tag_button");
-        if (!workInfo.tag || workInfo.tag === "未分類") {
-          if (removeTagButton && removeTagButton.style.display === "flex") {
-            removeTagButton.style.display = "none";
-          }
-        } else {
-          if (
-            workInfo["editMode"] &&
-            removeTagButton &&
-            removeTagButton.style.display === "none"
-          ) {
-            removeTagButton.style.display = "flex";
-          }
-          const removeTagButtonPrompt =
-            document.querySelector("#remove_tag_prompt");
-          if (removeTagButtonPrompt)
-            removeTagButtonPrompt.innerText = lang.includes("zh")
-              ? "删除标签 " + workInfo.tag
-              : "Delete Tag " + workInfo.tag;
-        }
-      }
-      if (DEBUG)
-        console.log(
-          "[Label Bookmarks] Current Tag",
-          workInfo.tag || "Uncategorized",
+    try {
+      const editButtonContainer = await waitForDom(EDIT_BUTTON_CONTAINER);
+      if (editButtonContainer) {
+        editButtonContainer.style.justifyContent = "initial";
+        editButtonContainer.firstElementChild.style.marginRight = "auto";
+        editButtonContainer.insertBefore(
+          removeTagButton,
+          editButtonContainer.lastChild,
         );
-    }).observe(tagsContainer, {
-      subtree: true,
-      childList: true,
-    });
+        let removeBookmarkContainerObserver;
+        const editButtonObserver = new MutationObserver(
+          async (MutationRecord) => {
+            const { tag } = await updateWorkInfo();
+            if (!MutationRecord[0].addedNodes.length) {
+              // open edit mode
+              const removeBookmarkContainer = document.querySelector(
+                REMOVE_BOOKMARK_CONTAINER,
+              );
+              if (!removeBookmarkContainer?.children?.[2]) return;
+              removeBookmarkContainer.appendChild(clearTagsButton);
+              removeBookmarkContainerObserver = new MutationObserver(() => {
+                const value =
+                  removeBookmarkContainer.children[2].getAttribute(
+                    "aria-disabled",
+                  );
+                clearTagsButton.setAttribute("aria-disabled", value);
+                clearTagsButton.children[0].setAttribute("aria-disabled", value);
+              });
+              removeBookmarkContainerObserver.observe(
+                removeBookmarkContainer.children[2],
+                { attributes: true },
+              );
+              if (tag && tag !== "未分類") {
+                document.querySelector("#remove_tag_prompt").innerText =
+                  lang.includes("zh") ? "删除标签 " + tag : "Delete Tag " + tag;
+                removeTagButton.style.display = "flex";
+              }
+            } else {
+              // exit edit mode
+              removeTagButton.style.display = "none";
+              if (removeBookmarkContainerObserver)
+                removeBookmarkContainerObserver.disconnect();
+              clearTagsButton.setAttribute("aria-disabled", "true");
+              clearTagsButton.children[0].setAttribute("aria-disabled", "true");
+            }
+          },
+        );
+        editButtonObserver.observe(editButtonContainer, {
+          childList: true,
+        });
+      }
+    } catch (err) {
+      console.log("[Label Bookmarks] Edit button container unavailable, skipped", err);
+    }
+
+    try {
+      let lastTag = workInfo.tag;
+      const tagsContainer = await waitForDom(ALL_TAGS_CONTAINER);
+      new MutationObserver(async () => {
+        const workInfo = await updateWorkInfo();
+        if (lastTag !== workInfo.tag) {
+          lastTag = workInfo.tag;
+          const removeTagButton = document.querySelector("#remove_tag_button");
+          if (!workInfo.tag || workInfo.tag === "未分類") {
+            if (removeTagButton && removeTagButton.style.display === "flex") {
+              removeTagButton.style.display = "none";
+            }
+          } else {
+            if (
+              workInfo["editMode"] &&
+              removeTagButton &&
+              removeTagButton.style.display === "none"
+            ) {
+              removeTagButton.style.display = "flex";
+            }
+            const removeTagButtonPrompt =
+              document.querySelector("#remove_tag_prompt");
+            if (removeTagButtonPrompt)
+              removeTagButtonPrompt.innerText = lang.includes("zh")
+                ? "删除标签 " + workInfo.tag
+                : "Delete Tag " + workInfo.tag;
+          }
+        }
+        if (DEBUG)
+          console.log(
+            "[Label Bookmarks] Current Tag",
+            workInfo.tag || "Uncategorized",
+          );
+      }).observe(tagsContainer, {
+        subtree: true,
+        childList: true,
+      });
+    } catch (err) {
+      console.log("[Label Bookmarks] Tags container unavailable, skipped", err);
+    }
 
     const toUncategorized = document.querySelector(WORK_NUM);
     if (toUncategorized) {
@@ -3323,31 +3498,35 @@ async function injectElements() {
       });
 
       // all tags selection control
-      const prevAllTagsButton = await waitForDom(ALL_TAGS_BUTTON);
-      prevAllTagsButton.style.display = "none";
-      addStyle(".ggMyQW { z-index: -1; }");
-      const allTagsButton = document.createElement("div");
-      allTagsButton.setAttribute("data-bs-toggle", "modal");
-      allTagsButton.setAttribute("data-bs-target", "#all_tags_modal");
-      allTagsButton.classList.add(ALL_TAGS_BUTTON.slice(1));
-      allTagsButton.role = "button";
-      allTagsButton.innerHTML = `
+      try {
+        const prevAllTagsButton = await waitForDom(ALL_TAGS_BUTTON);
+        prevAllTagsButton.style.display = "none";
+        addStyle(".ggMyQW { z-index: -1; }");
+        const allTagsButton = document.createElement("div");
+        allTagsButton.setAttribute("data-bs-toggle", "modal");
+        allTagsButton.setAttribute("data-bs-target", "#all_tags_modal");
+        allTagsButton.classList.add(ALL_TAGS_BUTTON.slice(1));
+        allTagsButton.role = "button";
+        allTagsButton.innerHTML = `
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-asterisk" viewBox="0 0 16 16">
       <path d="M8 0a1 1 0 0 1 1 1v5.268l4.562-2.634a1 1 0 1 1 1 1.732L10 8l4.562 2.634a1 1 0 1 1-1 1.732L9 9.732V15a1 1 0 1 1-2 0V9.732l-4.562 2.634a1 1 0 1 1-1-1.732L6 8 1.438 5.366a1 1 0 0 1 1-1.732L7 6.268V1a1 1 0 0 1 1-1z"/>
     </svg>`;
-      const allTagsContainer = await waitForDom(ALL_TAGS_CONTAINER);
-      allTagsContainer.appendChild(allTagsButton);
-      allTagsButton.addEventListener("click", () => {
-        document.querySelector(ALL_TAGS_BUTTON)?.click();
-        const modal = document.querySelector("#all_tags_modal");
-        modal.addEventListener("shown.bs.modal", () => modal.focus());
-        modal.addEventListener("hidden.bs.modal", () => {
-          document
-            .querySelector(ALL_TAGS_MODAL)
-            ?.querySelector("button")
-            .click();
+        const allTagsContainer = await waitForDom(ALL_TAGS_CONTAINER);
+        allTagsContainer.appendChild(allTagsButton);
+        allTagsButton.addEventListener("click", () => {
+          document.querySelector(ALL_TAGS_BUTTON)?.click();
+          const modal = document.querySelector("#all_tags_modal");
+          modal.addEventListener("shown.bs.modal", () => modal.focus());
+          modal.addEventListener("hidden.bs.modal", () => {
+            document
+              .querySelector(ALL_TAGS_MODAL)
+              ?.querySelector("button")
+              .click();
+          });
         });
-      });
+      } catch (err) {
+        console.log("[Label Bookmarks] All tags selector unavailable, skipped", err);
+      }
     }
 
     console.log("[Label Bookmarks] Injected");
@@ -3357,9 +3536,9 @@ async function injectElements() {
       () => {
         if (window.location.href.match(/\/users\/\d+\/bookmarks\/artworks/))
           delay(1000)
-            .then(() => waitForDom(ALL_TAGS_CONTAINER))
             .then(createModalElements)
-            .then(injectElements);
+            .then(injectElements)
+            .catch(console.log);
       },
       { once: true },
     );
@@ -3461,7 +3640,8 @@ function setElementProperties() {
   const searchButton = document.querySelector("#search_modal_button");
   const generatorButton = document.querySelector("#generator_modal_button");
   const featureButton = document.querySelector("#feature_modal_button");
-  if (lang.includes("zh")) {
+  if (!labelButton || !searchButton || !generatorButton || !featureButton) return;
+  if ((lang || "").includes("zh")) {
     labelButton.innerText = "添加标签";
     searchButton.innerText = "搜索图片";
     generatorButton.innerText = "随机图片";
@@ -3473,40 +3653,62 @@ function setElementProperties() {
     featureButton.innerText = "Function";
   }
   addStyle(
-    `.label-button {
-         padding: 0 24px;
+    `#label_bookmarks_buttons {
+         position: fixed;
+         top: 72px;
+         right: 16px;
+         z-index: 2147483647;
+         gap: 8px;
+         align-items: center;
+         padding: 6px;
+         border: 1px solid rgba(128, 128, 128, 0.28);
+         border-radius: 6px;
+         background: ${theme ? "rgba(255, 255, 255, 0.94)" : "rgba(31, 31, 31, 0.94)"};
+         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+       }
+       #label_bookmarks_buttons .label-button {
+         display: inline-flex;
+         align-items: center;
+         justify-content: center;
+         min-width: 64px;
+         min-height: 28px;
+         padding: 4px 10px;
+         border: 1px solid rgba(128, 128, 128, 0.32);
+         border-radius: 4px;
          background: transparent;
+         color: ${theme ? "rgb(31, 31, 31)" : "rgb(245, 245, 245)"};
          font-size: 16px;
          font-weight: 700;
-         border-top: 4px solid rgba(0, 150, 250, 0);
-         border-bottom: none;
-         border-left: none;
-         border-right: none;
-         line-height: 24px;
-         background: transparent;
-         transition: color 0.4s ease 0s, border 0.4s ease 0s;
+         line-height: 20px;
+         cursor: pointer;
+         white-space: nowrap;
+         transition: color 0.4s ease 0s, border-color 0.4s ease 0s;
        }
-       .label-button:hover {
-         border-top: 4px solid rgb(0, 150, 250);
+       #label_bookmarks_buttons .label-button:hover {
+         border-color: rgb(0, 150, 250);
        }`,
   );
 
   // append user tags options
   const customSelects = [...document.querySelectorAll(".select-custom-tags")];
+  const publicTags = userTagDict?.public || [];
+  const privateTags = userTagDict?.["private"] || [];
+  const hasOption = (select, value) =>
+    [...select.options].some((option) => option.value === value);
   customSelects.forEach((el) => {
     const uncat = el.querySelector("option[value='未分類']");
     if (uncat) {
       const t = "未分類";
-      const pb = userTagDict.public.find((e) => e.tag === t)?.["cnt"] || 0;
-      const pr = userTagDict["private"].find((e) => e.tag === t)?.["cnt"] || 0;
+      const pb = publicTags.find((e) => e.tag === t)?.["cnt"] || 0;
+      const pr = privateTags.find((e) => e.tag === t)?.["cnt"] || 0;
       uncat.innerText = `未分类作品 / Uncategorized Works (${pb}, ${pr})`;
     }
     userTags.forEach((tag) => {
+      if (hasOption(el, tag)) return;
       const option = document.createElement("option");
       option.value = tag;
-      const pb = userTagDict.public.find((e) => e.tag === tag)?.["cnt"] || 0;
-      const pr =
-        userTagDict["private"].find((e) => e.tag === tag)?.["cnt"] || 0;
+      const pb = publicTags.find((e) => e.tag === tag)?.["cnt"] || 0;
+      const pr = privateTags.find((e) => e.tag === tag)?.["cnt"] || 0;
       option.innerText = tag + ` (${pb}, ${pr})`;
       el.appendChild(option);
     });
@@ -3574,7 +3776,7 @@ function setElementProperties() {
 
   document
     .querySelector("#stop_remove_tag_button")
-    .addEventListener("click", () => (window.runFlag = false));
+    .onclick = () => (window.runFlag = false);
   if (DEBUG) console.log("[Label Bookmarks] Element Properties Set");
 }
 
@@ -3965,5 +4167,6 @@ function registerMenu() {
   waitForDom("nav")
     .then(initializeVariables)
     .then(createModalElements)
-    .then(injectElements);
+    .then(injectElements)
+    .catch(console.log);
 })();
