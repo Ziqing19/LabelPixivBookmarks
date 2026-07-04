@@ -2,7 +2,7 @@
 // @name         Pixiv收藏夹自动标签
 // @name:en      Label Pixiv Bookmarks
 // @namespace    http://tampermonkey.net/
-// @version      5.18
+// @version      5.21
 // @description  自动为Pixiv收藏夹内图片打上已有的标签，并可以搜索收藏夹
 // @description:en    Automatically add existing labels for images in the bookmarks, and users are able to search the bookmarks
 // @author       philimao
@@ -20,7 +20,7 @@
 
 // ==/UserScript==
 
-const version = "5.18";
+const version = "5.21";
 const latest = `♢ 处理Pixiv组件类名更新
 ♢ Update constants due to change of element class names
 ♢ 并非所有功能都已恢复，仅验证了设置标签功能
@@ -50,19 +50,21 @@ let unsafeWindow_ = unsafeWindow,
   GM_registerMenuCommand_ = GM_registerMenuCommand;
 
 // selectors
-const BANNER = ".sc-8bf48ebe-0";
+const BANNER = ".bg-surface1 > div:first-child";
+const NAV = ".bg-surface1 nav";
 const THEME_CONTAINER = "html";
-const WORK_SECTION = "section.sc-3d8ed48f-0"; // 作品section，从works->pagination
-const WORK_CONTAINER = "ul.sc-7d21cb21-1.jELUak"; // 仅包含作品
-const PAGE_BODY = ".sc-2b45994f-0.cUskQy"; // 自主页、收藏起下方
-const EDIT_BUTTON_CONTAINER = ".sc-9d335d39-6.cfUrtF"; // 管理收藏按钮父容器，包含左侧作品文字
-const REMOVE_BOOKMARK_CONTAINER = ".sc-231887f1-4.kvBpUA";
-const WORK_NUM = ".sc-b5e6ab10-0.hfQbJx";
-const ADD_TAGS_MODAL_ENTRY = ".bbTNLI"; // 原生添加标签窗口中标签按钮
-const ALL_TAGS_BUTTON = ".jkGZFM"; // 标签切换窗口触发按钮
-const ALL_TAGS_CONTAINER = ".hpRxDJ"; // 标签按钮容器
-const ALL_TAGS_MODAL = ".ggMyQW"; // 原生标签切换窗口
-const ALL_TAGS_MODAL_CONTAINER = ".gOPhqx"; // 原生标签切换窗口中标签按钮容器
+const WORK_SECTION = "section"; // 作品section，从works->pagination
+const WORK_CONTAINER = "section ul"; // 仅包含作品
+const PAGE_BODY = '#__next [data-overlay-container="true"] > div:first-child'; // 自主页、收藏起下方
+const EDIT_BUTTON_CONTAINER = "section > div:first-child"; // 管理收藏按钮父容器，包含左侧作品文字
+const REMOVE_BOOKMARK_CONTAINER =
+  "section > div:nth-child(2) > div > div:first-child";
+const WORK_NUM = "section h2 + div";
+const ADD_TAGS_MODAL_ENTRY = 'ul[role="listbox"] button, ul li button'; // 原生添加标签窗口中标签按钮
+const ALL_TAGS_BUTTON =
+  "section > div:nth-child(2) > div:first-child > div:last-child"; // 标签切换窗口触发按钮
+const ALL_TAGS_CONTAINER = "section > div:nth-child(2) > div:first-child"; // 标签按钮容器
+const ALL_TAGS_MODAL_CONTAINER = '[role="dialog"] > div'; // 原生标签切换窗口中标签按钮容器
 
 function getCharacterName(tag) {
   return tag.split("(")[0];
@@ -127,6 +129,7 @@ function getValue(name, defaultValue) {
 function setValue(name, value) {
   if (name === "synonymDict" && (!value || !Object.keys(value).length)) return;
   GM_setValue_(name, value);
+
   // backup
   let valueArray = JSON.parse(window.localStorage.getItem(name));
   if (!valueArray) valueArray = [];
@@ -601,7 +604,9 @@ async function clearBookmarkTags(works) {
 async function handleClearBookmarkTags(evt) {
   evt.preventDefault();
   const selected = [
-    ...document.querySelectorAll("label>div[aria-disabled='true']"),
+    ...document.querySelectorAll(
+      "label:has(input:checked) > div[aria-disabled]",
+    ),
   ];
   if (!selected.length) return;
 
@@ -1082,7 +1087,7 @@ async function handleSearch(evt) {
     document.querySelector("#search_prompt").innerText = "无结果 / No Result";
   else
     document.querySelector("#search_prompt").innerText = `
-    当前搜索进度 / Searched：${searchOffset} / ${totalBookmarks}
+    当前搜索进度 / Searched: ${searchOffset} / ${totalBookmarks}
   `;
   if (searchOffset < totalBookmarks)
     document.querySelector("#search_more").style.display = "block";
@@ -1116,8 +1121,8 @@ function displayWork(work, resultsDiv, textColor) {
            <div class="p-1 d-flex">
              <div class="rate-icon d-none">R-18</div>
              <div class="ms-auto page-icon d-none">
-               <span class="gbNjFx">
-                 <svg viewBox="0 0 9 10" width="9" height="9" class="sc-14heosd-1 fArvVr">
+               <span style="display: inline-flex;">
+                 <svg viewBox="0 0 9 10" width="9" height="9" fill="currentColor">
                    <path d="M8,3 C8.55228475,3 9,3.44771525 9,4 L9,9 C9,9.55228475 8.55228475,10 8,10 L3,10 C2.44771525,10 2,9.55228475 2,9 L6,9 C7.1045695,9 8,8.1045695 8,7 L8,3 Z M1,1 L6,1    C6.55228475,1 7,1.44771525 7,2 L7,7 C7,7.55228475 6.55228475,8 6,8 L1,8 C0.44771525,8    0,7.55228475 0,7 L0,2 C0,1.44771525 0.44771525,1 1,1 Z" transform=""></path>
                  </svg>
                </span>
@@ -2818,7 +2823,6 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
   });
 
   // all tags selection modal
-  const c_ = ALL_TAGS_CONTAINER.slice(1);
   const allTagsModal = document.createElement("div");
   allTagsModal.className = "modal fade";
   allTagsModal.id = "all_tags_modal";
@@ -2829,21 +2833,21 @@ Tag ${tag} will be renamed to ${newName}.\n All related works (both public and p
         <h5 class="modal-title">收藏标签一栏 / All Bookmark Tags</h5>
         <button class="btn btn-close btn-close-empty ms-auto" data-bs-dismiss="modal">${svgClose}</button>
       </div>
-      <div class="modal-body p-4"><div class="${c_} mb-4"></div><div class="hpRxDJ"></div></div>
+      <div class="modal-body p-4"><div class="all-tags-parody-container mb-4"></div><div class="all-tags-character-container"></div></div>
     </div>`;
-  const parodyContainer = allTagsModal.querySelector(ALL_TAGS_CONTAINER);
-  const characterContainer = [
-    ...allTagsModal.querySelectorAll(ALL_TAGS_CONTAINER),
-  ][1];
+  const parodyContainer = allTagsModal.querySelector(
+    ".all-tags-parody-container",
+  );
+  const characterContainer = allTagsModal.querySelector(
+    ".all-tags-character-container",
+  );
   userTags.forEach((tag) => {
     const d = document.createElement("div");
-    d.className = "sc-1jxp5wn-2 cdeTmC";
+    d.style.cssText = "display: inline-flex; margin: 4px;";
     d.innerHTML = `
-        <div class="sc-d98f2c-0 sc-1ij5ui8-1 RICfj sc-1xl36rp-0 iyuGOa" role="button">
-          <div class="sc-1xl36rp-1 iUPWKW">
-            <div class="sc-1xl36rp-2 bIDszS">
-              <div title="#${tag}" class="sc-1utla24-0 bTtACY">#${tag}</div>
-            </div>
+        <div role="button" style="display: flex; align-items: center; padding: 6px 12px; border-radius: 4px; background: rgba(0, 0, 0, 0.04); cursor: pointer;" onmouseover="this.style.background='rgba(0, 150, 250, 0.1)'" onmouseout="this.style.background='rgba(0, 0, 0, 0.04)'">
+          <div style="font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            <div title="#${tag}">#${tag}</div>
           </div>
         </div>`;
     d.addEventListener("click", async () => {
@@ -2989,7 +2993,7 @@ async function updateWorkInfo(bookmarkTags) {
   const el = await waitForDom(WORK_SECTION);
   let workInfo = {};
   for (let i = 0; i < 100; i++) {
-    workInfo = Object.values(el)[0]["memoizedProps"]["children"][2]["props"];
+    workInfo = Object.values(el)[0]["memoizedProps"]["children"][3]["props"];
     if (Object.keys(workInfo).length) break;
     else await delay(200);
   }
@@ -3013,6 +3017,7 @@ async function initializeVariables() {
       token = await fetchTokenPolyfill();
       pageInfo.userId = window.location.href.match(/users\/(\d+)/)?.[1];
       pageInfo.client = { userId: uid, lang, token };
+      if (DEBUG) console.log("[Label Bookmarks] Page Info", pageInfo);
     } catch (err) {
       console.log(err);
       console.log("[Label Bookmarks] Initializing Failed");
@@ -3055,11 +3060,21 @@ async function initializeVariables() {
         el.classList.replace(prevTextColor, textColor);
       },
     );
-    const prevClearTag = theme ? "dydUg" : "jbzOgz";
-    const clearTag = theme ? "jbzOgz" : "dydUg";
-    const clearTagsButton = document.querySelector("#clear_tags_button");
-    if (clearTagsButton)
-      clearTagsButton.children[0].classList.replace(prevClearTag, clearTag);
+
+    const pillBgColor = theme
+      ? "rgba(0, 0, 0, 0.04)"
+      : "rgba(255, 255, 255, 0.08)";
+    const pillTextColor = theme
+      ? "rgba(0, 0, 0, 0.88)"
+      : "rgba(255, 255, 255, 0.88)";
+
+    ["clear_tags_button", "remove_tag_button"].forEach((id) => {
+      const el = document.querySelector("#" + id);
+      if (el) {
+        el.style.backgroundColor = pillBgColor;
+        el.style.color = pillTextColor;
+      }
+    });
   }).observe(themeDiv, { attributes: true });
 
   synonymDict = getValue("synonymDict", {});
@@ -3090,7 +3105,7 @@ async function injectElements() {
   if (DEBUG) console.log("[Label Bookmarks] Start Injecting");
   const textColor = theme ? "text-lp-dark" : "text-lp-light";
   const pageBody = document.querySelector(PAGE_BODY);
-  const root = document.querySelector("nav");
+  const root = document.querySelector(NAV);
   if (!root) console.log("[Label Bookmarks] Navbar Not Found");
   root.classList.add("d-flex");
   const buttonContainer = document.createElement("span");
@@ -3105,37 +3120,60 @@ async function injectElements() {
         <button class="label-button ${textColor}" data-bs-toggle="modal" data-bs-target="#label_modal" id="label_modal_button"/>
       `;
 
-  const clearTagsThemeClass = theme ? "OPGIe" : "bDwYXF";
   const clearTagsText = lang.includes("zh") ? "清除标签" : "Clear Tags";
   const clearTagsButton = document.createElement("div");
   clearTagsButton.id = "clear_tags_button";
-  clearTagsButton.className = "sc-15a17794-0 iTJRIU sc-231887f1-7 gzddfG";
+  const pillButtonStyle = `
+    display: none;
+    margin: 0px;
+    padding: 8px 16px;
+    border-radius: 9999px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 22px;
+    background-color: ${theme ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.08)"};
+    color: ${theme ? "rgba(0, 0, 0, 0.88)" : "rgba(255, 255, 255, 0.88)"};
+    transition: background-color 0.2s ease;
+  `;
+  clearTagsButton.style.cssText = pillButtonStyle;
   clearTagsButton.setAttribute("aria-disabled", "true");
   clearTagsButton.setAttribute("role", "button");
-  clearTagsButton.innerHTML = `<div aria-disabled="true" class="sc-74250f2c-0 ${clearTagsThemeClass}">
-            <div class="sc-4a5gah-1 kHyYuA">
-              ${clearTagsText}
-            </div>
-          </div>`;
+  clearTagsButton.innerText = clearTagsText;
+  clearTagsButton.addEventListener("mouseenter", () => {
+    if (clearTagsButton.getAttribute("aria-disabled") !== "true") {
+      clearTagsButton.style.backgroundColor = theme
+        ? "rgba(0, 0, 0, 0.08)"
+        : "rgba(255, 255, 255, 0.16)";
+    }
+  });
+  clearTagsButton.addEventListener("mouseleave", () => {
+    clearTagsButton.style.backgroundColor = theme
+      ? "rgba(0, 0, 0, 0.04)"
+      : "rgba(255, 255, 255, 0.08)";
+  });
   clearTagsButton.addEventListener("click", handleClearBookmarkTags);
+  unsafeWindow.clearTags = handleClearBookmarkTags;
 
   const removeTagButton = document.createElement("div");
   removeTagButton.id = "remove_tag_button";
-  removeTagButton.style.display = "none";
-  removeTagButton.style.marginRight = "16px";
-  removeTagButton.style.marginBottom = "12px";
-  removeTagButton.style.color = "rgba(0, 0, 0, 0.64)";
-  removeTagButton.style.cursor = "pointer";
-  removeTagButton.innerHTML = `
-    <div class="${theme ? "" : "icon-invert"}" style="margin-right: 4px">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-trash" viewBox="0 0 16 16">
-        <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
-        <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
-      </svg>
-    </div>
-    <div class="fw-bold ${textColor}" id="remove_tag_prompt"></div>
-  `;
+  removeTagButton.style.cssText = pillButtonStyle;
+  removeTagButton.setAttribute("role", "button");
+  const removeTagText = lang.includes("zh") ? "删除标签" : "Delete Tag";
+  removeTagButton.innerHTML = `<span id="remove_tag_prompt">${removeTagText}</span>`;
+  removeTagButton.addEventListener("mouseenter", () => {
+    removeTagButton.style.backgroundColor = theme
+      ? "rgba(0, 0, 0, 0.08)"
+      : "rgba(255, 255, 255, 0.16)";
+  });
+  removeTagButton.addEventListener("mouseleave", () => {
+    removeTagButton.style.backgroundColor = theme
+      ? "rgba(0, 0, 0, 0.04)"
+      : "rgba(255, 255, 255, 0.08)";
+  });
   removeTagButton.addEventListener("click", handleDeleteTag);
+  unsafeWindow.deleteTag = handleDeleteTag;
 
   async function injection(_, injectionObserver) {
     if (_) console.log(_);
@@ -3204,49 +3242,84 @@ async function injectElements() {
 
     const editButtonContainer = await waitForDom(EDIT_BUTTON_CONTAINER);
     if (editButtonContainer) {
-      editButtonContainer.style.justifyContent = "initial";
-      editButtonContainer.firstElementChild.style.marginRight = "auto";
-      editButtonContainer.insertBefore(
-        removeTagButton,
-        editButtonContainer.lastChild,
-      );
       let removeBookmarkContainerObserver;
-      const editButtonObserver = new MutationObserver(
-        async (MutationRecord) => {
-          const { tag } = await updateWorkInfo();
-          if (!MutationRecord[0].addedNodes.length) {
-            // open edit mode
-            const removeBookmarkContainer = document.querySelector(
-              REMOVE_BOOKMARK_CONTAINER,
-            );
+
+      const isInEditMode = () => {
+        const section = document.querySelector("section");
+        return (
+          section &&
+          section.children.length >= 3 &&
+          section.children[2].querySelector('input[type="checkbox"]')
+        );
+      };
+
+      const handleEditModeChange = async () => {
+        const { tag } = await updateWorkInfo();
+        const inEditMode = isInEditMode();
+
+        if (inEditMode) {
+          if (DEBUG) console.log("[Label Bookmarks] In Edit Mode");
+          // open edit mode
+          let removeBookmarkContainer = document.querySelector(
+            REMOVE_BOOKMARK_CONTAINER,
+          );
+          if (
+            removeBookmarkContainer &&
+            !removeBookmarkContainer.contains(clearTagsButton)
+          ) {
             removeBookmarkContainer.appendChild(clearTagsButton);
-            removeBookmarkContainerObserver = new MutationObserver(() => {
-              const value =
-                removeBookmarkContainer.children[2].getAttribute(
-                  "aria-disabled",
-                );
-              clearTagsButton.setAttribute("aria-disabled", value);
-              clearTagsButton.children[0].setAttribute("aria-disabled", value);
-            });
-            removeBookmarkContainerObserver.observe(
-              removeBookmarkContainer.children[2],
-              { attributes: true },
+            removeBookmarkContainer.appendChild(removeTagButton);
+            // Find button with aria-disabled to sync state - look for Remove bookmark button
+            const referenceButton = removeBookmarkContainer.querySelector(
+              '[role="button"][aria-disabled]',
             );
-            if (tag && tag !== "未分類") {
-              document.querySelector("#remove_tag_prompt").innerText =
-                lang.includes("zh") ? "删除标签 " + tag : "Delete Tag " + tag;
-              removeTagButton.style.display = "flex";
+            if (referenceButton) {
+              const syncButtonState = () => {
+                const value = referenceButton.getAttribute("aria-disabled");
+                const isDisabled = value === "true";
+                // clearTagsButton: sync aria-disabled and show/hide based on selection
+                clearTagsButton.setAttribute("aria-disabled", value);
+                clearTagsButton.style.display = isDisabled ? "none" : "block";
+                clearTagsButton.style.cursor = isDisabled
+                  ? "default"
+                  : "pointer";
+              };
+              removeBookmarkContainerObserver = new MutationObserver(
+                syncButtonState,
+              );
+              removeBookmarkContainerObserver.observe(referenceButton, {
+                attributes: true,
+              });
+              // Sync initial state
+              syncButtonState();
             }
-          } else {
-            // exit edit mode
-            removeTagButton.style.display = "none";
-            if (removeBookmarkContainerObserver)
-              removeBookmarkContainerObserver.disconnect();
-            clearTagsButton.setAttribute("aria-disabled", "true");
-            clearTagsButton.children[0].setAttribute("aria-disabled", "true");
           }
-        },
-      );
+          if (tag && tag !== "未分類") {
+            document.querySelector("#remove_tag_prompt").innerText =
+              lang.includes("zh") ? "删除标签 " + tag : "Delete Tag " + tag;
+            removeTagButton.style.display = "block";
+          } else {
+            removeTagButton.style.display = "none";
+          }
+        } else {
+          // exit edit mode
+          removeTagButton.style.display = "none";
+          clearTagsButton.style.display = "none";
+          if (removeBookmarkContainerObserver)
+            removeBookmarkContainerObserver.disconnect();
+          clearTagsButton.setAttribute("aria-disabled", "true");
+        }
+      };
+
+      // Observe the section for child changes (detects edit mode toggle)
+      const section = document.querySelector("section");
+      const editModeObserver = new MutationObserver(handleEditModeChange);
+      editModeObserver.observe(section, {
+        childList: true,
+      });
+
+      // Also observe the header container for changes
+      const editButtonObserver = new MutationObserver(handleEditModeChange);
       editButtonObserver.observe(editButtonContainer, {
         childList: true,
       });
@@ -3325,11 +3398,11 @@ async function injectElements() {
       // all tags selection control
       const prevAllTagsButton = await waitForDom(ALL_TAGS_BUTTON);
       prevAllTagsButton.style.display = "none";
-      addStyle(".ggMyQW { z-index: -1; }");
+      addStyle(`${ALL_TAGS_MODAL} { z-index: -1; }`);
       const allTagsButton = document.createElement("div");
       allTagsButton.setAttribute("data-bs-toggle", "modal");
       allTagsButton.setAttribute("data-bs-target", "#all_tags_modal");
-      allTagsButton.classList.add(ALL_TAGS_BUTTON.slice(1));
+      allTagsButton.className = "all-tags-custom-button";
       allTagsButton.role = "button";
       allTagsButton.innerHTML = `
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-asterisk" viewBox="0 0 16 16">
@@ -3352,17 +3425,49 @@ async function injectElements() {
 
     console.log("[Label Bookmarks] Injected");
 
-    window.addEventListener(
-      "popstate",
-      () => {
-        if (window.location.href.match(/\/users\/\d+\/bookmarks\/artworks/))
-          delay(1000)
-            .then(() => waitForDom(ALL_TAGS_CONTAINER))
-            .then(createModalElements)
-            .then(injectElements);
-      },
-      { once: true },
-    );
+    //intercept history.pushState, history.replaceState and popstate event to reinject elements when navigating between pages without reloading
+    function onNavigate() {
+      if (!window.location.href.match(/\/users\/\d+\/bookmarks\/artworks/))
+        return;
+      document.querySelector("#label_bookmarks_buttons")?.remove();
+      [
+        "#label_modal",
+        "#search_modal",
+        "#generator_modal",
+        "#feature_modal",
+        "#progress_modal",
+        "#all_tags_modal",
+      ].forEach((sel) => document.querySelector(sel)?.remove());
+
+      delay(800)
+        .then(() => waitForDom(NAV))
+        .then(initializeVariables)
+        .then(createModalElements)
+        .then(injectElements)
+        .catch(console.log);
+    }
+
+    if (!window._lbNavPatched) {
+      window._lbNavPatched = true;
+
+      let navTimer = null;
+      function debouncedNavigate() {
+        clearTimeout(navTimer);
+        navTimer = setTimeout(onNavigate, 100);
+      }
+
+      const _pushState = history.pushState.bind(history);
+      history.pushState = function (state, title, url) {
+        _pushState(state, title, url);
+        debouncedNavigate();
+      };
+      const _replaceState = history.replaceState.bind(history);
+      history.replaceState = function (state, title, url) {
+        _replaceState(state, title, url);
+        debouncedNavigate();
+      };
+      window.addEventListener("popstate", debouncedNavigate);
+    }
 
     return true;
   }
@@ -3962,7 +4067,7 @@ function registerMenu() {
   "use strict";
   loadResources();
   registerMenu();
-  waitForDom("nav")
+  waitForDom(NAV)
     .then(initializeVariables)
     .then(createModalElements)
     .then(injectElements);
